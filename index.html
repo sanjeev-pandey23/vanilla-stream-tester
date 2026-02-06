@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stream Tester</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.12"></script>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <header class="app-header">
+        <div>
+          <h1>Stream Tester</h1>
+          <p class="subtitle">Developer-focused player with live diagnostics, stats, and rich telemetry.</p>
+        </div>
+        <div class="header-actions">
+          <span class="chip">v0.0.1</span>
+          <span class="chip">Sanjeev Pandey's Lab</span>
+        </div>
+      </header>
+
+      <div class="layout">
+        <section class="player-panel">
+          <div class="player-header">
+            <div class="player-title">
+              <h2>Playback</h2>
+              <span id="liveBadge" class="badge hidden">LIVE</span>
+            </div>
+            <div id="status" class="status">Ready.</div>
+          </div>
+
+          <div class="video-shell">
+            <div class="aspect-16x9">
+              <video id="video" controls playsinline></video>
+            </div>
+          </div>
+
+          <div class="player-controls">
+            <div class="control-row">
+              <label for="qualitySelect">Quality</label>
+              <select id="qualitySelect">
+                <option value="auto">Auto</option>
+              </select>
+            </div>
+            <div class="control-row">
+              <label for="audioSelect">Audio Track</label>
+              <select id="audioSelect">
+                <option value="auto">Auto</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">Resolution</div>
+              <div id="statResolution" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Buffer</div>
+              <div id="statBuffer" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Bitrate</div>
+              <div id="statBitrate" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Dropped</div>
+              <div id="statDropped" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Playback Rate</div>
+              <div id="statRate" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Latency</div>
+              <div id="statLatency" class="stat-value">-</div>
+            </div>
+          </div>
+
+          <div class="graphs">
+            <div class="graph-card">
+              <div class="graph-header">
+                <span>Buffer (s)</span>
+                <span id="bufferValue" class="graph-value">-</span>
+              </div>
+              <canvas id="bufferChart" width="520" height="160"></canvas>
+            </div>
+            <div class="graph-card">
+              <div class="graph-header">
+                <span>Bitrate (kbps)</span>
+                <span id="bitrateValue" class="graph-value">-</span>
+              </div>
+              <canvas id="bitrateChart" width="520" height="160"></canvas>
+            </div>
+          </div>
+
+          <div class="logs">
+            <div class="logs-header">Important Logs</div>
+            <div id="logWindow" class="log-window" role="log" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="panel config-panel">
+          <div class="panel-title">Stream Configuration</div>
+
+          <div class="row">
+            <label for="urlInput">Stream URL</label>
+            <input id="urlInput" type="url" placeholder="https://example.com/stream.m3u8 or .mpd" />
+          </div>
+
+          <div class="row">
+            <label for="fileInput">Local file</label>
+            <input id="fileInput" type="file" accept=".m3u8,.mpd" />
+          </div>
+
+          <div class="row">
+            <label for="streamType">Stream type</label>
+            <select id="streamType">
+              <option value="auto">Auto-detect</option>
+              <option value="hls">HLS</option>
+              <option value="dash">DASH</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label for="licenseUrl">License URL (DRM)</label>
+            <input id="licenseUrl" type="url" placeholder="https://license.example.com/widevine" />
+          </div>
+
+          <div class="row">
+            <label for="keySystem">Key system</label>
+            <select id="keySystem">
+              <option value="">None</option>
+              <option value="com.widevine.alpha">Widevine</option>
+              <option value="com.microsoft.playready">PlayReady</option>
+              <option value="com.apple.fps.1_0">FairPlay</option>
+            </select>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="panel-title">Playback Options</div>
+          <div class="option-grid">
+            <label class="option">
+              <input id="autoplayToggle" type="checkbox" />
+              <span>Autoplay</span>
+            </label>
+            <label class="option">
+              <input id="mutedToggle" type="checkbox" />
+              <span>Start Muted</span>
+            </label>
+            <label class="option">
+              <input id="loopToggle" type="checkbox" />
+              <span>Loop</span>
+            </label>
+            <label class="option">
+              <input id="lowLatencyToggle" type="checkbox" />
+              <span>Low-latency Mode</span>
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="panel-title">Diagnostics</div>
+          <div class="row">
+            <label for="statsInterval">Stats refresh (ms)</label>
+            <select id="statsInterval">
+              <option value="500">500</option>
+              <option value="1000" selected>1000</option>
+              <option value="2000">2000</option>
+            </select>
+          </div>
+
+          <div class="actions">
+            <button id="playBtn">Play</button>
+            <button id="stopBtn" class="secondary">Stop</button>
+          </div>
+
+          <div class="note">
+            <p>Tip: local HLS/DASH references to segment files may be blocked by browser security.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
