@@ -41,6 +41,7 @@ let hlsPlayer = null;
 let dashPlayer = null;
 let objectUrl = null;
 let statsTimer = null;
+let hlsIsLive = false;
 const bufferHistory = [];
 const bitrateHistory = [];
 const maxHistory = 60;
@@ -186,6 +187,7 @@ const cleanupPlayers = () => {
     URL.revokeObjectURL(objectUrl);
     objectUrl = null;
   }
+  hlsIsLive = false;
   video.removeAttribute("src");
   video.load();
   if (statsTimer) {
@@ -234,6 +236,9 @@ const loadHls = (source, drmConfig) => {
     hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
       log("error", `HLS error: ${data?.type || "unknown"}`);
       setStatus(`HLS error: ${data?.type || "unknown"}`);
+    });
+    hlsPlayer.on(Hls.Events.LEVEL_LOADED, (_, data) => {
+      hlsIsLive = Boolean(data?.details?.live);
     });
     hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
       updateHlsOptions();
@@ -439,8 +444,8 @@ const formatNumber = (value, decimals = 1) => {
 };
 
 const detectLive = () => {
+  if (hlsPlayer) return hlsIsLive;
   if (video.duration === Infinity) return true;
-  if (hlsPlayer && Number.isFinite(hlsPlayer.liveSyncPosition)) return true;
   if (dashPlayer && typeof dashPlayer.isDynamic === "function") {
     return dashPlayer.isDynamic();
   }
