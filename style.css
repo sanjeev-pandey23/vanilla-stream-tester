@@ -275,6 +275,14 @@ video {
   background: #000000;
 }
 
+.ttml-rendering {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: #ffffff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+}
+
 .stats-grid {
   margin-top: 14px;
   display: grid;

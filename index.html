@@ -34,6 +34,7 @@
           <div class="video-shell">
             <div class="aspect-16x9">
               <video id="video" controls playsinline></video>
+              <div id="ttmlRenderingDiv" class="ttml-rendering" aria-hidden="true"></div>
             </div>
           </div>
 
@@ -171,6 +172,13 @@
               <option value="1000" selected>1000</option>
               <option value="2000">2000</option>
             </select>
+          </div>
+
+          <div class="option-grid">
+            <label class="option">
+              <input id="networkLogsToggle" type="checkbox" checked />
+              <span>Network Logs</span>
+            </label>
           </div>
 
           <div class="actions">

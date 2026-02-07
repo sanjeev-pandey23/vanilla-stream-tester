@@ -26,6 +26,7 @@ const bufferChart = document.getElementById("bufferChart");
 const bitrateChart = document.getElementById("bitrateChart");
 const bufferValue = document.getElementById("bufferValue");
 const bitrateValue = document.getElementById("bitrateValue");
+const ttmlRenderingDiv = document.getElementById("ttmlRenderingDiv");
 const qualitySelect = document.getElementById("qualitySelect");
 const audioSelect = document.getElementById("audioSelect");
 const logWindow = document.getElementById("logWindow");
@@ -34,6 +35,7 @@ const mutedToggle = document.getElementById("mutedToggle");
 const loopToggle = document.getElementById("loopToggle");
 const lowLatencyToggle = document.getElementById("lowLatencyToggle");
 const statsIntervalSelect = document.getElementById("statsInterval");
+const networkLogsToggle = document.getElementById("networkLogsToggle");
 
 let hlsPlayer = null;
 let dashPlayer = null;
@@ -60,6 +62,76 @@ const log = (level, message) => {
     logWindow.removeChild(logWindow.firstChild);
   }
   logWindow.scrollTop = logWindow.scrollHeight;
+};
+
+const formatDuration = (ms) => {
+  if (!Number.isFinite(ms)) return "-";
+  return `${Math.round(ms)}ms`;
+};
+
+const setupNetworkLogging = () => {
+  if (window.__networkLogsInstalled) return;
+  window.__networkLogsInstalled = true;
+  window.__networkLogsEnabled = true;
+
+  if (window.fetch) {
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init = {}) => {
+      const method = (init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+      const url = input instanceof Request ? input.url : String(input);
+      const startedAt = performance.now();
+      return originalFetch(input, init)
+        .then((response) => {
+          const elapsed = performance.now() - startedAt;
+          if (window.__networkLogsEnabled) {
+            log("info", `NET ${method} ${url} -> ${response.status} (${formatDuration(elapsed)})`);
+          }
+          return response;
+        })
+        .catch((error) => {
+          const elapsed = performance.now() - startedAt;
+          if (window.__networkLogsEnabled) {
+            log("error", `NET ${method} ${url} failed (${formatDuration(elapsed)})`);
+          }
+          throw error;
+        });
+    };
+  }
+
+  const originalOpen = XMLHttpRequest.prototype.open;
+  const originalSend = XMLHttpRequest.prototype.send;
+
+  XMLHttpRequest.prototype.open = function open(method, url, ...rest) {
+    this.__netInfo = { method: String(method || "GET").toUpperCase(), url: String(url || "") };
+    return originalOpen.call(this, method, url, ...rest);
+  };
+
+  XMLHttpRequest.prototype.send = function send(body) {
+    const startedAt = performance.now();
+    const { method, url } = this.__netInfo || { method: "GET", url: "" };
+
+    const logResult = () => {
+      if (!window.__networkLogsEnabled) return;
+      const elapsed = performance.now() - startedAt;
+      const status = this.status || 0;
+      const level = status >= 400 ? "error" : "info";
+      const suffix = status ? `-> ${status}` : "-> (no status)";
+      log(level, `NET ${method} ${url} ${suffix} (${formatDuration(elapsed)})`);
+    };
+
+    this.addEventListener("loadend", logResult, { once: true });
+    this.addEventListener(
+      "error",
+      () => {
+        if (!window.__networkLogsEnabled) return;
+        const elapsed = performance.now() - startedAt;
+        log("error", `NET ${method} ${url} failed (${formatDuration(elapsed)})`);
+      },
+      { once: true }
+    );
+
+    return originalSend.call(this, body);
+  };
 };
 
 const setSelectOptions = (select, options, autoLabel = "Auto") => {
@@ -219,6 +291,9 @@ const loadDash = (source, drmConfig) => {
     });
   }
   dashPlayer.initialize(video, source, true);
+  if (ttmlRenderingDiv && typeof dashPlayer.attachTTMLRenderingDiv === "function") {
+    dashPlayer.attachTTMLRenderingDiv(ttmlRenderingDiv);
+  }
   dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
     updateDashOptions();
   });
@@ -303,7 +378,17 @@ const updateHlsOptions = () => {
 
 const updateDashOptions = () => {
   if (!dashPlayer) return;
-  const bitrates = dashPlayer.getBitrateInfoListFor("video") || [];
+  const getBitrateList = () => {
+    if (typeof dashPlayer.getBitrateInfoListFor === "function") {
+      return dashPlayer.getBitrateInfoListFor("video") || [];
+    }
+    if (typeof dashPlayer.getBitrateInfoList === "function") {
+      return dashPlayer.getBitrateInfoList("video") || [];
+    }
+    log("warn", "DASH bitrate list API not available.");
+    return [];
+  };
+  const bitrates = getBitrateList();
   const bitrateOptions = bitrates.map((rate, index) => {
     const parts = [];
     if (rate.height) parts.push(`${rate.height}p`);
@@ -312,8 +397,26 @@ const updateDashOptions = () => {
     return { value: String(index), label };
   });
   setSelectOptions(qualitySelect, bitrateOptions);
-  const isAuto = dashPlayer.getAutoSwitchQualityFor("video");
-  qualitySelect.value = isAuto ? "auto" : String(dashPlayer.getQualityFor("video"));
+  const getIsAuto = () => {
+    if (typeof dashPlayer.getAutoSwitchQualityFor === "function") {
+      return dashPlayer.getAutoSwitchQualityFor("video");
+    }
+    if (typeof dashPlayer.getAutoSwitchQuality === "function") {
+      return dashPlayer.getAutoSwitchQuality();
+    }
+    return true;
+  };
+  const getQuality = () => {
+    if (typeof dashPlayer.getQualityFor === "function") {
+      return dashPlayer.getQualityFor("video");
+    }
+    if (typeof dashPlayer.getQuality === "function") {
+      return dashPlayer.getQuality();
+    }
+    return 0;
+  };
+  const isAuto = getIsAuto();
+  qualitySelect.value = isAuto ? "auto" : String(getQuality());
 
   const tracks = dashPlayer.getTracksFor("audio") || [];
   const trackOptions = tracks.map((track, index) => {
@@ -468,10 +571,22 @@ qualitySelect.addEventListener("change", () => {
   }
   if (dashPlayer) {
     if (value === "auto") {
-      dashPlayer.setAutoSwitchQualityFor("video", true);
+      if (typeof dashPlayer.setAutoSwitchQualityFor === "function") {
+        dashPlayer.setAutoSwitchQualityFor("video", true);
+      } else if (typeof dashPlayer.setAutoSwitchQuality === "function") {
+        dashPlayer.setAutoSwitchQuality(true);
+      }
     } else {
-      dashPlayer.setAutoSwitchQualityFor("video", false);
-      dashPlayer.setQualityFor("video", Number(value));
+      if (typeof dashPlayer.setAutoSwitchQualityFor === "function") {
+        dashPlayer.setAutoSwitchQualityFor("video", false);
+      } else if (typeof dashPlayer.setAutoSwitchQuality === "function") {
+        dashPlayer.setAutoSwitchQuality(false);
+      }
+      if (typeof dashPlayer.setQualityFor === "function") {
+        dashPlayer.setQualityFor("video", Number(value));
+      } else if (typeof dashPlayer.setQuality === "function") {
+        dashPlayer.setQuality(Number(value));
+      }
     }
     log("info", "DASH quality updated.");
     return;
@@ -505,6 +620,12 @@ audioSelect.addEventListener("change", () => {
 playBtn.addEventListener("click", handlePlay);
 stopBtn.addEventListener("click", handleStop);
 statsIntervalSelect.addEventListener("change", startStatsLoop);
+if (networkLogsToggle) {
+  networkLogsToggle.addEventListener("change", () => {
+    window.__networkLogsEnabled = networkLogsToggle.checked;
+    log("info", `Network logs ${networkLogsToggle.checked ? "enabled" : "disabled"}.`);
+  });
+}
 
 fileInput.addEventListener("change", () => {
   if (fileInput.files.length > 0) {
@@ -551,3 +672,7 @@ video.addEventListener("error", () => {
 });
 
 resetStats();
+setupNetworkLogging();
+if (networkLogsToggle) {
+  window.__networkLogsEnabled = networkLogsToggle.checked;
+}
