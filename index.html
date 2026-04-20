@@ -108,7 +108,11 @@
 
           <div class="row">
             <label for="urlInput">Stream URL</label>
-            <input id="urlInput" type="url" placeholder="https://example.com/stream.m3u8 or .mpd" />
+            <div id="httpWarning" class="input-warning hidden">Stream URL is HTTP and will be blocked. Use HTTPS.</div>
+            <div class="input-with-button">
+              <input id="urlInput" type="url" placeholder="https://example.com/stream.m3u8 or .mpd" />
+              <button id="inlinePlayBtn" class="inline-play hidden" type="button" aria-label="Play stream">Play</button>
+            </div>
           </div>
 
           <div class="row">

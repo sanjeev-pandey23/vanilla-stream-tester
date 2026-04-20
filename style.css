@@ -116,6 +116,40 @@ label {
   letter-spacing: 1px;
 }
 
+.input-warning {
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.input-with-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-button input {
+  width: 100%;
+  padding-right: 68px;
+}
+
+.inline-play {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 6px 10px;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  background: var(--accent-alt);
+  box-shadow: 2px 2px 0 var(--border);
+}
+
+.inline-play:hover {
+  background: var(--accent);
+}
+
 input,
 select,
 button {

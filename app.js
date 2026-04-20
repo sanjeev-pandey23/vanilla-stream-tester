@@ -36,6 +36,8 @@ const loopToggle = document.getElementById("loopToggle");
 const lowLatencyToggle = document.getElementById("lowLatencyToggle");
 const statsIntervalSelect = document.getElementById("statsInterval");
 const networkLogsToggle = document.getElementById("networkLogsToggle");
+const httpWarning = document.getElementById("httpWarning");
+const inlinePlayBtn = document.getElementById("inlinePlayBtn");
 
 let hlsPlayer = null;
 let dashPlayer = null;
@@ -320,6 +322,16 @@ const resolveSource = () => {
   return { source: url, name: url };
 };
 
+const updateHttpWarning = () => {
+  const url = urlInput.value.trim();
+  const lower = url.toLowerCase();
+  const isHttp = lower.startsWith("http://");
+  const isHttps = lower.startsWith("https://");
+  httpWarning.classList.toggle("hidden", !isHttp);
+  const shouldShowPlay = Boolean(url) && isHttps && fileInput.files.length === 0;
+  inlinePlayBtn.classList.toggle("hidden", !shouldShowPlay);
+};
+
 const handlePlay = () => {
   const { source, name } = resolveSource();
   if (!source) {
@@ -567,6 +579,17 @@ const startStatsLoop = () => {
   statsTimer = setInterval(updateStats, interval);
 };
 
+urlInput.addEventListener("input", updateHttpWarning);
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length > 0) {
+    httpWarning.classList.add("hidden");
+    inlinePlayBtn.classList.add("hidden");
+  } else {
+    updateHttpWarning();
+  }
+});
+updateHttpWarning();
+
 qualitySelect.addEventListener("change", () => {
   const value = qualitySelect.value;
   if (hlsPlayer) {
@@ -623,6 +646,7 @@ audioSelect.addEventListener("change", () => {
 });
 
 playBtn.addEventListener("click", handlePlay);
+inlinePlayBtn.addEventListener("click", handlePlay);
 stopBtn.addEventListener("click", handleStop);
 statsIntervalSelect.addEventListener("change", startStatsLoop);
 if (networkLogsToggle) {
@@ -636,12 +660,14 @@ fileInput.addEventListener("change", () => {
   if (fileInput.files.length > 0) {
     urlInput.value = "";
     setStatus("Local file selected.");
+    updateHttpWarning();
   }
 });
 
 urlInput.addEventListener("input", () => {
   if (urlInput.value.trim()) {
     fileInput.value = "";
+    updateHttpWarning();
   }
 });
 
