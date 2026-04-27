@@ -148,10 +148,29 @@
         letter-spacing: 1px;
         text-align: center;
       }
+
+      .back-btn {
+        display: inline-block;
+        margin-bottom: 28px;
+        padding: 8px 16px;
+        border: 2px solid var(--border);
+        color: var(--muted);
+        font-family: inherit;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        text-decoration: none;
+      }
+
+      .back-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
     </style>
   </head>
   <body>
     <div class="container">
+      <a href="../index.html" class="back-btn">← Back to Player</a>
       <header>
         <h1>Stream Tester — Changelog</h1>
         <p>Developer-focused player · Sanjeev Pandey's Lab</p>

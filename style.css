@@ -76,6 +76,12 @@ h2 {
   background: var(--highlight);
   text-transform: uppercase;
   letter-spacing: 1px;
+  text-decoration: none;
+}
+
+a.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .layout {
