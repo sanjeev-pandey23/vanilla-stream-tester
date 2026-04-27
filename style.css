@@ -84,6 +84,16 @@ a.chip:hover {
   color: var(--accent);
 }
 
+a.chip.chip-gh {
+  border-color: var(--accent-alt);
+  color: var(--accent-alt);
+}
+
+a.chip.chip-gh:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.95fr);
@@ -216,6 +226,26 @@ button:focus {
 .actions {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.share-output {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.share-output input {
+  flex: 1;
+  font-size: 11px;
+  padding: 8px 10px;
+  color: var(--muted);
+}
+
+.share-output button {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 8px 12px;
 }
 
 button {

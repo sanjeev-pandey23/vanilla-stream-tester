@@ -42,6 +42,7 @@ const customHeadersInput = document.getElementById("customHeaders");
 const maxBitrateCapSelect = document.getElementById("maxBitrateCap");
 const abrAlgorithmSelect = document.getElementById("abrAlgorithm");
 const bwSimulationSelect = document.getElementById("bwSimulation");
+const shareBtn = document.getElementById("shareBtn");
 
 let hlsPlayer = null;
 let dashPlayer = null;
@@ -796,8 +797,110 @@ video.addEventListener("error", () => {
   log("error", "Video element error.");
 });
 
+const buildShareUrl = () => {
+  const params = new URLSearchParams();
+
+  const url = urlInput.value.trim();
+  if (url) params.set("url", url);
+
+  const streamType = streamTypeSelect.value;
+  if (streamType !== "auto") params.set("type", streamType);
+
+  const licenseUrl = licenseUrlInput.value.trim();
+  if (licenseUrl) params.set("licenseUrl", licenseUrl);
+
+  const keySystem = keySystemSelect.value.trim();
+  if (keySystem) params.set("keySystem", keySystem);
+
+  if (autoplayToggle.checked) params.set("autoplay", "1");
+  if (mutedToggle.checked) params.set("muted", "1");
+  if (loopToggle.checked) params.set("loop", "1");
+  if (lowLatencyToggle.checked) params.set("lowLatency", "1");
+
+  const statsInterval = statsIntervalSelect.value;
+  if (statsInterval !== "1000") params.set("statsInterval", statsInterval);
+
+  const headers = customHeadersInput ? customHeadersInput.value.trim() : "";
+  if (headers) params.set("headers", headers);
+
+  const maxCap = maxBitrateCapSelect ? maxBitrateCapSelect.value : "0";
+  if (maxCap !== "0") params.set("maxCap", maxCap);
+
+  const abr = abrAlgorithmSelect ? abrAlgorithmSelect.value : "abrThroughput";
+  if (abr !== "abrThroughput") params.set("abr", abr);
+
+  const simBw = bwSimulationSelect ? bwSimulationSelect.value : "0";
+  if (simBw !== "0") params.set("simBw", simBw);
+
+  const base = `${location.protocol}//${location.host}${location.pathname}`;
+  return params.toString() ? `${base}?${params.toString()}` : base;
+};
+
+const restoreFromUrl = () => {
+  const params = new URLSearchParams(location.search);
+  if (!params.toString()) return;
+
+  if (params.has("url")) urlInput.value = params.get("url");
+  if (params.has("type")) streamTypeSelect.value = params.get("type");
+  if (params.has("licenseUrl")) licenseUrlInput.value = params.get("licenseUrl");
+  if (params.has("keySystem")) keySystemSelect.value = params.get("keySystem");
+
+  if (params.get("autoplay") === "1") autoplayToggle.checked = true;
+  if (params.get("muted") === "1") mutedToggle.checked = true;
+  if (params.get("loop") === "1") loopToggle.checked = true;
+  if (params.get("lowLatency") === "1") lowLatencyToggle.checked = true;
+
+  if (params.has("statsInterval")) statsIntervalSelect.value = params.get("statsInterval");
+
+  if (params.has("headers") && customHeadersInput) {
+    customHeadersInput.value = params.get("headers");
+  }
+  if (params.has("maxCap") && maxBitrateCapSelect) {
+    maxBitrateCapSelect.value = params.get("maxCap");
+  }
+  if (params.has("abr") && abrAlgorithmSelect) {
+    abrAlgorithmSelect.value = params.get("abr");
+  }
+  if (params.has("simBw") && bwSimulationSelect) {
+    bwSimulationSelect.value = params.get("simBw");
+  }
+
+  updateHttpWarning();
+  log("info", "Config restored from shared URL.");
+};
+
 resetStats();
 setupNetworkLogging();
 if (networkLogsToggle) {
   window.__networkLogsEnabled = networkLogsToggle.checked;
 }
+
+if (shareBtn) {
+  shareBtn.addEventListener("click", () => {
+    const shareUrl = buildShareUrl();
+    const copyToClipboard = (text) => {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      return Promise.resolve();
+    };
+    copyToClipboard(shareUrl).then(() => {
+      shareBtn.textContent = "Copied!";
+      setTimeout(() => { shareBtn.textContent = "Share"; }, 2000);
+      log("info", "Share URL copied to clipboard.");
+    }).catch(() => {
+      log("warn", "Could not copy share URL.");
+    });
+  });
+}
+
+restoreFromUrl();

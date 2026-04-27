@@ -176,6 +176,29 @@
         <p>Developer-focused player · Sanjeev Pandey's Lab</p>
       </header>
 
+      <!-- v0.0.4 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.4</span>
+          <span class="release-date">27 Apr 2026</span>
+        </div>
+
+        <div class="section-title">Utility</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Share URL</strong> — the Share button in the config panel encodes the full
+            current setup (stream URL, type, DRM, playback toggles, custom headers, bitrate cap,
+            ABR algorithm, simulated bandwidth) into URL query parameters. Paste the resulting
+            link in any browser to instantly restore the exact configuration. A Copy button
+            writes the URL to the clipboard via the Clipboard API with a <code>execCommand</code>
+            fallback for older browsers. Only non-default values are included, keeping URLs short.
+            On page load, <code>restoreFromUrl()</code> reads the query string and pre-fills
+            all matching fields automatically.
+          </li>
+        </ul>
+      </div>
+
       <!-- v0.0.3 -->
       <div class="release">
         <div class="release-header">
