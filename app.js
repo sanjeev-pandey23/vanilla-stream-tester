@@ -200,7 +200,14 @@ const cleanupPlayers = () => {
 };
 
 const detectType = (source) => {
-  const lower = source.toLowerCase();
+  let path = source;
+  try {
+    path = new URL(source).pathname;
+  } catch (_) {
+    // relative path or non-standard URL — strip query string and fragment manually
+    path = source.split("?")[0].split("#")[0];
+  }
+  const lower = path.toLowerCase();
   if (lower.endsWith(".m3u8")) return "hls";
   if (lower.endsWith(".mpd")) return "dash";
   return "auto";
