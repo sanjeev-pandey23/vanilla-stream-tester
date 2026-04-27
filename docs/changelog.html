@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Changelog — Stream Tester</title>
+    <style>
+      :root {
+        --bg: #0d1b17;
+        --surface: #111f1b;
+        --border: #1a2e28;
+        --text: #e8f5f0;
+        --muted: #5a8070;
+        --accent: #27f2b0;
+        --accent-alt: #1ac98f;
+        --warn: #ffb347;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Courier New", Courier, monospace;
+        font-size: 14px;
+        line-height: 1.7;
+        padding: 40px 24px;
+      }
+
+      .container {
+        max-width: 780px;
+        margin: 0 auto;
+      }
+
+      header {
+        border-bottom: 2px solid var(--border);
+        padding-bottom: 20px;
+        margin-bottom: 40px;
+      }
+
+      header h1 {
+        font-size: 22px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      header p {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 6px;
+        letter-spacing: 1px;
+      }
+
+      .release {
+        margin-bottom: 48px;
+      }
+
+      .release-header {
+        display: flex;
+        align-items: baseline;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .release-version {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: var(--accent);
+      }
+
+      .release-date {
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+      }
+
+      .section-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 2.5px;
+        color: var(--muted);
+        border-left: 3px solid var(--accent);
+        padding-left: 10px;
+        margin-bottom: 12px;
+        margin-top: 24px;
+      }
+
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+
+      ul li {
+        padding: 6px 0 6px 20px;
+        border-bottom: 1px solid var(--border);
+        position: relative;
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      ul li::before {
+        content: "›";
+        position: absolute;
+        left: 4px;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      .tag {
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        padding: 2px 6px;
+        margin-right: 6px;
+        border: 1px solid;
+        vertical-align: middle;
+      }
+
+      .tag.new { color: var(--accent); border-color: var(--accent); }
+      .tag.fix { color: var(--warn); border-color: var(--warn); }
+      .tag.hls { color: #64b5f6; border-color: #64b5f6; }
+      .tag.dash { color: #ce93d8; border-color: #ce93d8; }
+
+      code {
+        background: var(--border);
+        padding: 1px 5px;
+        border-radius: 2px;
+        font-family: inherit;
+        font-size: 12px;
+        color: var(--accent);
+      }
+
+      footer {
+        border-top: 2px solid var(--border);
+        padding-top: 20px;
+        margin-top: 40px;
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: 1px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Stream Tester — Changelog</h1>
+        <p>Developer-focused player · Sanjeev Pandey's Lab</p>
+      </header>
+
+      <!-- v0.0.3 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.3</span>
+          <span class="release-date">27 Apr 2026</span>
+        </div>
+
+        <div class="section-title">Network &amp; ABR Features</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Custom Request Headers</strong> — inject arbitrary key:value headers into
+            every manifest and segment request. Useful for <code>Authorization</code>, CDN
+            authentication tokens, or any custom header required by the origin. Enter one header
+            per line in <em>Key: Value</em> format. HLS uses <code>xhrSetup</code>;
+            DASH uses <code>RequestModifier</code>.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Max Bitrate Cap</strong> — hard ceiling on the quality tier ABR can select.
+            Prevents the player from ever requesting a rendition above the chosen bitrate,
+            regardless of measured throughput. HLS maps the cap to the highest level index
+            ≤ the target via <code>autoLevelCapping</code>; DASH uses
+            <code>streaming.abr.maxBitrate.video</code>.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag dash">DASH</span>
+            <strong>ABR Algorithm Selector</strong> — switch between dash.js ABR strategies
+            without needing devtools. Available options: <code>abrThroughput</code> (default),
+            <code>abrBola</code> (buffer-occupancy based), <code>abrDynamic</code>,
+            <code>abrL2A</code>, and <code>abrLoLP</code> (optimised for low-latency streams).
+            Applied via <code>streaming.abr.ABRStrategy</code> before initialisation.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Simulated Bandwidth</strong> — override the player's perceived network
+            throughput to test ABR decisions without throttling the OS or browser. Presets cover
+            2G / 3G / 4G and broadband speeds. HLS seeds <code>abrEwmaDefaultEstimate</code>
+            and reinforces the value every 2 s; DASH sets <code>initialBitrate</code> and
+            <code>maxBitrate</code> to the simulated value.
+          </li>
+        </ul>
+      </div>
+
+      <!-- v0.0.2 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.2</span>
+          <span class="release-date">27 Apr 2026</span>
+        </div>
+
+        <div class="section-title">Bug Fixes</div>
+        <ul>
+          <li>
+            <span class="tag fix">Fix</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Stream type detection with query parameters</strong> — URLs with anything
+            after the file extension (e.g. <code>?bc_token=…</code>, SSAI redirect URLs) were
+            not detected as HLS or DASH, causing playback to fail. Detection now extracts the
+            URL <code>pathname</code> via <code>new URL()</code> before checking the extension,
+            stripping query strings and fragments automatically.
+          </li>
+        </ul>
+      </div>
+
+      <!-- v0.0.1 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.1</span>
+          <span class="release-date">Apr 2026</span>
+        </div>
+
+        <div class="section-title">Initial Release</div>
+        <ul>
+          <li><span class="tag new">New</span> HLS and DASH playback via hls.js and dash.js</li>
+          <li><span class="tag new">New</span> DRM support — Widevine, PlayReady, FairPlay</li>
+          <li><span class="tag new">New</span> Live stream detection with LIVE badge</li>
+          <li><span class="tag new">New</span> Quality and audio track selection</li>
+          <li><span class="tag new">New</span> Real-time buffer and bitrate charts</li>
+          <li><span class="tag new">New</span> Network request log with latency timings</li>
+          <li><span class="tag new">New</span> TTML subtitle rendering div for DASH</li>
+          <li><span class="tag new">New</span> Low-latency mode for HLS and DASH</li>
+          <li><span class="tag new">New</span> Local file playback via object URLs</li>
+          <li><span class="tag new">New</span> HTTP origin warning for mixed-content URLs</li>
+        </ul>
+      </div>
+
+      <footer>stream-tester · sanjeev pandey's lab · mit license</footer>
+    </div>
+  </body>
+</html>

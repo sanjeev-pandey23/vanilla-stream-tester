@@ -152,7 +152,8 @@ label {
 
 input,
 select,
-button {
+button,
+textarea {
   border: 2px solid var(--border);
   padding: 10px 12px;
   background: #ffffff;
@@ -160,6 +161,20 @@ button {
   font-size: 14px;
   font-family: inherit;
   outline: none;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.5;
+  font-size: 12px;
+  font-family: "Courier New", Courier, monospace;
+}
+
+.dim {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 input[type="file"] {
@@ -398,7 +413,7 @@ canvas {
   background: #ffffff;
   border: 2px solid var(--border);
   padding: 10px;
-  height: 180px;
+  height: 320px;
   overflow-y: auto;
   font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 12px;

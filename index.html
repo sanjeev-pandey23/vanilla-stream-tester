@@ -185,6 +185,50 @@
             </label>
           </div>
 
+          <div class="divider"></div>
+
+          <div class="panel-title">Network &amp; ABR</div>
+
+          <div class="row">
+            <label for="customHeaders">Custom Request Headers</label>
+            <textarea id="customHeaders" rows="3" spellcheck="false" placeholder="Authorization: Bearer token&#10;X-Custom-Header: value"></textarea>
+          </div>
+
+          <div class="row">
+            <label for="maxBitrateCap">Max Bitrate Cap</label>
+            <select id="maxBitrateCap">
+              <option value="0">Uncapped</option>
+              <option value="500">500 kbps</option>
+              <option value="1500">1.5 Mbps</option>
+              <option value="3000">3 Mbps</option>
+              <option value="6000">6 Mbps</option>
+              <option value="12000">12 Mbps</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label for="abrAlgorithm">ABR Algorithm <small class="dim">(DASH only)</small></label>
+            <select id="abrAlgorithm">
+              <option value="abrThroughput">Throughput (default)</option>
+              <option value="abrBola">BOLA</option>
+              <option value="abrDynamic">Dynamic</option>
+              <option value="abrL2A">L2A</option>
+              <option value="abrLoLP">LoLP (Low-latency)</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label for="bwSimulation">Simulated Bandwidth</label>
+            <select id="bwSimulation">
+              <option value="0">Off (real network)</option>
+              <option value="400">400 kbps (2G)</option>
+              <option value="1500">1.5 Mbps (3G)</option>
+              <option value="5000">5 Mbps (4G)</option>
+              <option value="10000">10 Mbps</option>
+              <option value="20000">20 Mbps</option>
+            </select>
+          </div>
+
           <div class="actions">
             <button id="playBtn">Play</button>
             <button id="stopBtn" class="secondary">Stop</button>

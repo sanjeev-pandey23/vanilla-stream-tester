@@ -38,11 +38,16 @@ const statsIntervalSelect = document.getElementById("statsInterval");
 const networkLogsToggle = document.getElementById("networkLogsToggle");
 const httpWarning = document.getElementById("httpWarning");
 const inlinePlayBtn = document.getElementById("inlinePlayBtn");
+const customHeadersInput = document.getElementById("customHeaders");
+const maxBitrateCapSelect = document.getElementById("maxBitrateCap");
+const abrAlgorithmSelect = document.getElementById("abrAlgorithm");
+const bwSimulationSelect = document.getElementById("bwSimulation");
 
 let hlsPlayer = null;
 let dashPlayer = null;
 let objectUrl = null;
 let statsTimer = null;
+let bwSimTimer = null;
 let hlsIsLive = false;
 const bufferHistory = [];
 const bitrateHistory = [];
@@ -196,7 +201,24 @@ const cleanupPlayers = () => {
     clearInterval(statsTimer);
     statsTimer = null;
   }
+  if (bwSimTimer) {
+    clearInterval(bwSimTimer);
+    bwSimTimer = null;
+  }
   resetStats();
+};
+
+const parseCustomHeaders = () => {
+  const raw = customHeadersInput ? customHeadersInput.value.trim() : "";
+  if (!raw) return {};
+  return raw.split("\n").reduce((acc, line) => {
+    const colonIdx = line.indexOf(":");
+    if (colonIdx < 1) return acc;
+    const key = line.slice(0, colonIdx).trim();
+    const value = line.slice(colonIdx + 1).trim();
+    if (key) acc[key] = value;
+    return acc;
+  }, {});
 };
 
 const detectType = (source) => {
@@ -229,6 +251,22 @@ const loadHls = (source, drmConfig) => {
 
   if (Hls.isSupported()) {
     const config = {};
+    const customHeaders = parseCustomHeaders();
+    const maxCapKbps = Number(maxBitrateCapSelect ? maxBitrateCapSelect.value : 0);
+    const simBwKbps = Number(bwSimulationSelect ? bwSimulationSelect.value : 0);
+
+    if (Object.keys(customHeaders).length > 0) {
+      config.xhrSetup = (xhr) => {
+        Object.entries(customHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+      };
+      log("info", `HLS: injecting ${Object.keys(customHeaders).length} custom header(s).`);
+    }
+
+    if (simBwKbps > 0) {
+      config.abrEwmaDefaultEstimate = simBwKbps * 1000;
+      log("info", `HLS: simulated bandwidth set to ${simBwKbps} kbps.`);
+    }
+
     if (drmConfig) {
       config.emeEnabled = true;
       config.drmSystems = {
@@ -242,6 +280,14 @@ const loadHls = (source, drmConfig) => {
       config.maxLiveSyncPlaybackRate = 1.03;
     }
     hlsPlayer = new Hls(config);
+
+    if (simBwKbps > 0) {
+      const simBps = simBwKbps * 1000;
+      bwSimTimer = setInterval(() => {
+        if (hlsPlayer) hlsPlayer.bandwidthEstimate = simBps;
+      }, 2000);
+    }
+
     hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
       log("error", `HLS error: ${data?.type || "unknown"}`);
       setStatus(`HLS error: ${data?.type || "unknown"}`);
@@ -250,6 +296,18 @@ const loadHls = (source, drmConfig) => {
       hlsIsLive = Boolean(data?.details?.live);
     });
     hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+      if (maxCapKbps > 0 && hlsPlayer.levels) {
+        let capIndex = -1;
+        hlsPlayer.levels.forEach((level, idx) => {
+          if (level.bitrate / 1000 <= maxCapKbps) capIndex = idx;
+        });
+        hlsPlayer.autoLevelCapping = capIndex;
+        if (capIndex >= 0) {
+          log("info", `HLS: max bitrate cap set to level ${capIndex} (≤ ${maxCapKbps} kbps).`);
+        } else {
+          log("warn", `HLS: no level found below ${maxCapKbps} kbps cap — uncapping.`);
+        }
+      }
       updateHlsOptions();
     });
     hlsPlayer.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
@@ -289,14 +347,43 @@ const loadDash = (source, drmConfig) => {
     return;
   }
 
+  const customHeaders = parseCustomHeaders();
+  const maxCapKbps = Number(maxBitrateCapSelect ? maxBitrateCapSelect.value : 0);
+  const simBwKbps = Number(bwSimulationSelect ? bwSimulationSelect.value : 0);
+  const abrAlgorithm = abrAlgorithmSelect ? abrAlgorithmSelect.value : "abrThroughput";
+
   dashPlayer = dashjs.MediaPlayer().create();
-  if (lowLatencyToggle.checked) {
-    dashPlayer.updateSettings({
-      streaming: {
-        lowLatencyEnabled: true,
+
+  if (Object.keys(customHeaders).length > 0) {
+    dashPlayer.extend("RequestModifier", () => ({
+      modifyRequestHeader(xhr) {
+        Object.entries(customHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+        return xhr;
       },
-    });
+    }), true);
+    log("info", `DASH: injecting ${Object.keys(customHeaders).length} custom header(s).`);
   }
+
+  const abrSettings = { ABRStrategy: abrAlgorithm };
+  if (maxCapKbps > 0) {
+    abrSettings.maxBitrate = { video: maxCapKbps };
+    log("info", `DASH: max bitrate cap set to ${maxCapKbps} kbps.`);
+  }
+  if (simBwKbps > 0) {
+    abrSettings.initialBitrate = { video: simBwKbps };
+    if (!maxCapKbps) abrSettings.maxBitrate = { video: simBwKbps };
+    log("info", `DASH: simulated bandwidth set to ${simBwKbps} kbps.`);
+  }
+  if (abrAlgorithm !== "abrThroughput") {
+    log("info", `DASH: ABR algorithm set to ${abrAlgorithm}.`);
+  }
+
+  const streamingSettings = { abr: abrSettings };
+  if (lowLatencyToggle.checked) {
+    streamingSettings.lowLatencyEnabled = true;
+  }
+  dashPlayer.updateSettings({ streaming: streamingSettings });
+
   if (drmConfig) {
     dashPlayer.setProtectionData({
       [drmConfig.keySystem]: {
