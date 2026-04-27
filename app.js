@@ -43,6 +43,14 @@ const maxBitrateCapSelect = document.getElementById("maxBitrateCap");
 const abrAlgorithmSelect = document.getElementById("abrAlgorithm");
 const bwSimulationSelect = document.getElementById("bwSimulation");
 const shareBtn = document.getElementById("shareBtn");
+const statStalls = document.getElementById("statStalls");
+const statStallTime = document.getElementById("statStallTime");
+const switchTimelineEl = document.getElementById("switchTimeline");
+const switchCountEl = document.getElementById("switchCount");
+const manifestViewerEl = document.getElementById("manifestViewer");
+const respHeadersEl = document.getElementById("respHeaders");
+const copyManifestBtn = document.getElementById("copyManifestBtn");
+const waterfallCanvas = document.getElementById("waterfallCanvas");
 
 let hlsPlayer = null;
 let dashPlayer = null;
@@ -50,6 +58,15 @@ let objectUrl = null;
 let statsTimer = null;
 let bwSimTimer = null;
 let hlsIsLive = false;
+let hlsPrevLevel = -1;
+let stallCount = 0;
+let totalStallMs = 0;
+let stallStartedAt = null;
+let waterfallSessionStart = null;
+let waterfallSessionWall = null;
+const qualitySwitches = [];
+const segmentWaterfall = [];
+const maxWaterfallEntries = 25;
 const bufferHistory = [];
 const bitrateHistory = [];
 const maxHistory = 60;
@@ -85,15 +102,23 @@ const setupNetworkLogging = () => {
 
   if (window.fetch) {
     const originalFetch = window.fetch.bind(window);
+    const SEG_RE = /\.(ts|m4s|m4v|m4a|aac|webm|cmfv|cmfa)(\?|#|$)/i;
     window.fetch = (input, init = {}) => {
       const method = (init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
       const url = input instanceof Request ? input.url : String(input);
       const startedAt = performance.now();
+      const isSegment = SEG_RE.test(url);
+      const segRelStart = isSegment && waterfallSessionStart !== null
+        ? startedAt - waterfallSessionStart : null;
       return originalFetch(input, init)
         .then((response) => {
           const elapsed = performance.now() - startedAt;
           if (window.__networkLogsEnabled) {
             log("info", `NET ${method} ${url} -> ${response.status} (${formatDuration(elapsed)})`);
+          }
+          if (isSegment && segRelStart !== null) {
+            const size = parseInt(response.headers.get("content-length") || "0", 10) || 0;
+            recordSegment(url, segRelStart, elapsed, size);
           }
           return response;
         })
@@ -118,14 +143,24 @@ const setupNetworkLogging = () => {
   XMLHttpRequest.prototype.send = function send(body) {
     const startedAt = performance.now();
     const { method, url } = this.__netInfo || { method: "GET", url: "" };
+    const isSegment = /\.(ts|m4s|m4v|m4a|aac|webm|cmfv|cmfa)(\?|#|$)/i.test(url);
+    const segRelStart = isSegment && waterfallSessionStart !== null
+      ? startedAt - waterfallSessionStart
+      : null;
 
     const logResult = () => {
-      if (!window.__networkLogsEnabled) return;
       const elapsed = performance.now() - startedAt;
-      const status = this.status || 0;
-      const level = status >= 400 ? "error" : "info";
-      const suffix = status ? `-> ${status}` : "-> (no status)";
-      log(level, `NET ${method} ${url} ${suffix} (${formatDuration(elapsed)})`);
+      if (window.__networkLogsEnabled) {
+        const status = this.status || 0;
+        const level = status >= 400 ? "error" : "info";
+        const suffix = status ? `-> ${status}` : "-> (no status)";
+        log(level, `NET ${method} ${url} ${suffix} (${formatDuration(elapsed)})`);
+      }
+      if (isSegment && segRelStart !== null) {
+        let size = 0;
+        try { size = parseInt(this.getResponseHeader("content-length") || "0", 10) || 0; } catch (_) {}
+        recordSegment(url, segRelStart, elapsed, size);
+      }
     };
 
     this.addEventListener("loadend", logResult, { once: true });
@@ -160,6 +195,179 @@ const setSelectOptions = (select, options, autoLabel = "Auto") => {
   select.disabled = options.length === 0;
 };
 
+/* ── Quality switch timeline ── */
+
+const renderSwitchTimeline = () => {
+  if (!switchTimelineEl) return;
+  const count = qualitySwitches.length;
+  if (switchCountEl) switchCountEl.textContent = `${count} switch${count !== 1 ? "es" : ""}`;
+  switchTimelineEl.innerHTML = "";
+  [...qualitySwitches].reverse().forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "switch-entry";
+    const timeEl = document.createElement("span");
+    timeEl.className = "switch-time";
+    timeEl.textContent = entry.time;
+    const fromEl = document.createElement("span");
+    fromEl.className = "switch-from";
+    fromEl.textContent = entry.from;
+    const arrowEl = document.createElement("span");
+    arrowEl.className = "switch-arrow";
+    arrowEl.textContent = "→";
+    const toEl = document.createElement("span");
+    toEl.className = "switch-to";
+    toEl.textContent = entry.to;
+    row.appendChild(timeEl);
+    row.appendChild(fromEl);
+    row.appendChild(arrowEl);
+    row.appendChild(toEl);
+    switchTimelineEl.appendChild(row);
+  });
+};
+
+const recordQualitySwitch = (fromLabel, toLabel) => {
+  const time = new Date().toLocaleTimeString("en-US", { hour12: false });
+  qualitySwitches.push({ time, from: fromLabel, to: toLabel });
+  renderSwitchTimeline();
+};
+
+/* ── Segment waterfall ── */
+
+const recordSegment = (url, relStartMs, durationMs, sizeBytes) => {
+  let label;
+  try {
+    const parts = new URL(url).pathname.split("/");
+    label = parts[parts.length - 1] || url;
+  } catch (_) {
+    label = url.split("/").pop() || url;
+  }
+  if (label.length > 32) label = label.slice(0, 29) + "...";
+  segmentWaterfall.push({ label, relStartMs, durationMs, sizeBytes });
+  if (segmentWaterfall.length > maxWaterfallEntries) segmentWaterfall.shift();
+  drawWaterfall();
+  if (waterfallCanvas) {
+    const waterfallInfoEl = waterfallCanvas.parentElement.querySelector(".graph-value");
+    if (waterfallInfoEl) waterfallInfoEl.textContent = `${segmentWaterfall.length} seg`;
+  }
+};
+
+const drawWaterfall = () => {
+  if (!waterfallCanvas) return;
+  const ctx = waterfallCanvas.getContext("2d");
+  const W = waterfallCanvas.width;
+  const H = waterfallCanvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a1412";
+  ctx.fillRect(0, 0, W, H);
+
+  if (!segmentWaterfall.length) return;
+
+  const ROW_H = 22;
+  const LABEL_W = 200;
+  const BAR_AREA = W - LABEL_W - 12;
+  const maxRows = Math.floor(H / ROW_H);
+  const visible = segmentWaterfall.slice(-maxRows);
+
+  const tMin = Math.min(...visible.map((s) => s.relStartMs));
+  const tMax = Math.max(...visible.map((s) => s.relStartMs + s.durationMs));
+  const tRange = Math.max(tMax - tMin, 1);
+
+  visible.forEach((seg, i) => {
+    const y = i * ROW_H;
+
+    // Row background stripe
+    if (i % 2 === 0) {
+      ctx.fillStyle = "rgba(255,255,255,0.03)";
+      ctx.fillRect(0, y, W, ROW_H);
+    }
+
+    // Label
+    ctx.fillStyle = "rgba(39, 242, 176, 0.55)";
+    ctx.font = "10px 'Courier New', monospace";
+    ctx.fillText(seg.label, 4, y + 15);
+
+    // Bar
+    const bx = LABEL_W + Math.round(((seg.relStartMs - tMin) / tRange) * BAR_AREA);
+    const bw = Math.max(3, Math.round((seg.durationMs / tRange) * BAR_AREA));
+    ctx.fillStyle = "#27f2b0";
+    ctx.fillRect(bx, y + 4, bw, ROW_H - 8);
+
+    // Duration label inside bar
+    if (bw > 38) {
+      ctx.fillStyle = "#0a1412";
+      ctx.font = "9px 'Courier New', monospace";
+      ctx.fillText(`${Math.round(seg.durationMs)}ms`, bx + 3, y + 15);
+    }
+
+    // Row divider
+    ctx.strokeStyle = "rgba(39, 242, 176, 0.08)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y + ROW_H - 1);
+    ctx.lineTo(W, y + ROW_H - 1);
+    ctx.stroke();
+  });
+};
+
+/* ── Manifest viewer & response header inspector ── */
+
+const renderRespHeaders = (headers) => {
+  if (!respHeadersEl) return;
+  respHeadersEl.innerHTML = "";
+  const keys = Object.keys(headers);
+  if (!keys.length) {
+    const msg = document.createElement("div");
+    msg.style.cssText = "padding:6px 0;font-size:11px;color:var(--muted);font-family:'Courier New',monospace;";
+    msg.textContent = "No headers captured (possible CORS restriction).";
+    respHeadersEl.appendChild(msg);
+    return;
+  }
+  keys.forEach((k) => {
+    const row = document.createElement("div");
+    row.className = "resp-header-row";
+    const keyEl = document.createElement("span");
+    keyEl.className = "resp-header-key";
+    keyEl.textContent = k;
+    const valEl = document.createElement("span");
+    valEl.className = "resp-header-val";
+    valEl.textContent = headers[k];
+    row.appendChild(keyEl);
+    row.appendChild(valEl);
+    respHeadersEl.appendChild(row);
+  });
+};
+
+const renderManifest = (text) => {
+  if (!manifestViewerEl) return;
+  manifestViewerEl.textContent = text;
+};
+
+const fetchManifestInfo = (url) => {
+  const WANTED = [
+    "x-cache", "via", "content-type", "cdn-cache-control",
+    "cache-control", "etag", "last-modified", "age",
+    "x-amz-cf-pop", "x-served-by", "x-cache-hits",
+  ];
+  fetch(url)
+    .then((resp) => {
+      const found = {};
+      WANTED.forEach((h) => {
+        const v = resp.headers.get(h);
+        if (v) found[h] = v;
+      });
+      renderRespHeaders(found);
+      return resp.text();
+    })
+    .then((text) => {
+      renderManifest(text);
+      log("info", "Manifest fetched for viewer.");
+    })
+    .catch(() => {
+      renderRespHeaders({});
+      renderManifest("// Could not fetch manifest (CORS restriction or network error).");
+    });
+};
+
 const setStatus = (message) => {
   statusEl.textContent = message;
   log("info", message);
@@ -174,12 +382,22 @@ const resetStats = () => {
   statLatency.textContent = "-";
   bufferValue.textContent = "-";
   bitrateValue.textContent = "-";
+  if (statStalls) statStalls.textContent = "-";
+  if (statStallTime) statStallTime.textContent = "-";
   setSelectOptions(qualitySelect, []);
   setSelectOptions(audioSelect, []);
   liveBadge.classList.add("hidden");
   bufferHistory.length = 0;
   bitrateHistory.length = 0;
   drawCharts();
+  renderSwitchTimeline();
+  drawWaterfall();
+  if (waterfallCanvas) {
+    const infoEl = waterfallCanvas.parentElement && waterfallCanvas.parentElement.querySelector(".graph-value");
+    if (infoEl) infoEl.textContent = "-";
+  }
+  if (manifestViewerEl) manifestViewerEl.textContent = "-";
+  if (respHeadersEl) respHeadersEl.innerHTML = "";
 };
 
 const cleanupPlayers = () => {
@@ -196,6 +414,14 @@ const cleanupPlayers = () => {
     objectUrl = null;
   }
   hlsIsLive = false;
+  hlsPrevLevel = -1;
+  stallCount = 0;
+  totalStallMs = 0;
+  stallStartedAt = null;
+  waterfallSessionStart = null;
+  waterfallSessionWall = null;
+  qualitySwitches.length = 0;
+  segmentWaterfall.length = 0;
   video.removeAttribute("src");
   video.load();
   if (statsTimer) {
@@ -249,6 +475,8 @@ const createDrmConfig = () => {
 
 const loadHls = (source, drmConfig) => {
   cleanupPlayers();
+  waterfallSessionStart = performance.now();
+  waterfallSessionWall = Date.now();
 
   if (Hls.isSupported()) {
     const config = {};
@@ -289,6 +517,16 @@ const loadHls = (source, drmConfig) => {
       }, 2000);
     }
 
+    hlsPlayer.on(Hls.Events.FRAG_LOADED, (_, data) => {
+      const stats = data && data.stats;
+      const frag = data && data.frag;
+      if (!stats || !frag) return;
+      const relStart = stats.trequest - waterfallSessionStart;
+      const duration = stats.tload - stats.trequest;
+      if (duration > 0) {
+        recordSegment(frag.url || "", relStart, duration, stats.total || 0);
+      }
+    });
     hlsPlayer.on(Hls.Events.ERROR, (_, data) => {
       log("error", `HLS error: ${data?.type || "unknown"}`);
       setStatus(`HLS error: ${data?.type || "unknown"}`);
@@ -314,7 +552,21 @@ const loadHls = (source, drmConfig) => {
     hlsPlayer.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
       updateHlsOptions();
     });
-    hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, () => {
+    hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
+      const levels = hlsPlayer.levels || [];
+      const newIdx = data.level;
+      const newInfo = levels[newIdx];
+      const toLabel = newInfo
+        ? `${newInfo.height || "?"}p / ${Math.round((newInfo.bitrate || 0) / 1000)} kbps`
+        : `Level ${newIdx}`;
+      if (hlsPrevLevel !== newIdx) {
+        const prevInfo = hlsPrevLevel >= 0 ? levels[hlsPrevLevel] : null;
+        const fromLabel = prevInfo
+          ? `${prevInfo.height || "?"}p / ${Math.round((prevInfo.bitrate || 0) / 1000)} kbps`
+          : hlsPrevLevel >= 0 ? `Level ${hlsPrevLevel}` : "init";
+        recordQualitySwitch(fromLabel, toLabel);
+      }
+      hlsPrevLevel = newIdx;
       updateHlsOptions();
     });
     hlsPlayer.attachMedia(video);
@@ -342,6 +594,8 @@ const loadHls = (source, drmConfig) => {
 
 const loadDash = (source, drmConfig) => {
   cleanupPlayers();
+  waterfallSessionStart = performance.now();
+  waterfallSessionWall = Date.now();
 
   if (!dashjs.supportsMediaSource()) {
     setStatus("DASH is not supported in this browser.");
@@ -396,7 +650,37 @@ const loadDash = (source, drmConfig) => {
   if (ttmlRenderingDiv && typeof dashPlayer.attachTTMLRenderingDiv === "function") {
     dashPlayer.attachTTMLRenderingDiv(ttmlRenderingDiv);
   }
+  dashPlayer.on(dashjs.MediaPlayer.events.FRAGMENT_LOADING_COMPLETED, (e) => {
+    const req = e && e.request;
+    if (!req || req.type !== "MediaSegment") return;
+    const start = req.requestStartDate instanceof Date ? req.requestStartDate.getTime() : null;
+    const end = req.endDate instanceof Date ? req.endDate.getTime() : null;
+    if (start === null || end === null) return;
+    const relStart = start - waterfallSessionWall;
+    const duration = end - start;
+    if (duration > 0) {
+      recordSegment(req.url || "", relStart, duration, req.bytesLoaded || 0);
+    }
+  });
   dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+    updateDashOptions();
+  });
+  dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (event) => {
+    if (event.mediaType !== "video") return;
+    const getBitrateInfo = () => {
+      if (typeof dashPlayer.getBitrateInfoListFor === "function") return dashPlayer.getBitrateInfoListFor("video") || [];
+      return [];
+    };
+    const bitrates = getBitrateInfo();
+    const oldInfo = bitrates[event.oldQuality];
+    const newInfo = bitrates[event.newQuality];
+    const fromLabel = oldInfo
+      ? `${oldInfo.height || "?"}p / ${Math.round((oldInfo.bitrate || 0) / 1000)} kbps`
+      : `Q${event.oldQuality}`;
+    const toLabel = newInfo
+      ? `${newInfo.height || "?"}p / ${Math.round((newInfo.bitrate || 0) / 1000)} kbps`
+      : `Q${event.newQuality}`;
+    recordQualitySwitch(fromLabel, toLabel);
     updateDashOptions();
   });
   dashPlayer.on("error", (event) => {
@@ -442,6 +726,10 @@ const handlePlay = () => {
   const detectedType = detectType(name);
   const type = requestedType === "auto" ? detectedType : requestedType;
   const drmConfig = createDrmConfig();
+
+  if (!source.startsWith("blob:") && !source.startsWith("data:")) {
+    fetchManifestInfo(source);
+  }
 
   if (type === "hls") {
     loadHls(source, drmConfig);
@@ -606,6 +894,9 @@ const updateStats = () => {
   }
 
   statRate.textContent = formatNumber(video.playbackRate, 2);
+
+  if (statStalls) statStalls.textContent = String(stallCount);
+  if (statStallTime) statStallTime.textContent = totalStallMs > 0 ? `${formatNumber(totalStallMs / 1000)}s` : "0s";
 
   const live = detectLive();
   if (live) {
@@ -778,6 +1069,10 @@ video.addEventListener("loadedmetadata", () => {
 });
 
 video.addEventListener("playing", () => {
+  if (stallStartedAt !== null) {
+    totalStallMs += performance.now() - stallStartedAt;
+    stallStartedAt = null;
+  }
   log("info", "Playback started.");
 });
 
@@ -786,6 +1081,8 @@ video.addEventListener("pause", () => {
 });
 
 video.addEventListener("waiting", () => {
+  stallCount += 1;
+  stallStartedAt = performance.now();
   log("warn", "Buffering...");
 });
 
@@ -900,6 +1197,18 @@ if (shareBtn) {
     }).catch(() => {
       log("warn", "Could not copy share URL.");
     });
+  });
+}
+
+if (copyManifestBtn) {
+  copyManifestBtn.addEventListener("click", () => {
+    const text = manifestViewerEl ? manifestViewerEl.textContent : "";
+    if (!text || text === "-") return;
+    navigator.clipboard.writeText(text).then(() => {
+      copyManifestBtn.textContent = "Copied!";
+      setTimeout(() => { copyManifestBtn.textContent = "Copy"; }, 2000);
+      log("info", "Manifest copied to clipboard.");
+    }).catch(() => {});
   });
 }
 

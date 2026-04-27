@@ -16,7 +16,7 @@
           <p class="subtitle">Developer-focused player with live diagnostics, stats, and rich telemetry.</p>
         </div>
         <div class="header-actions">
-          <a href="docs/changelog.html" class="chip" target="_blank" rel="noopener noreferrer">v0.0.4</a>
+          <a href="docs/changelog.html" class="chip" target="_blank" rel="noopener noreferrer">v0.0.5</a>
           <a href="https://github.com/sanjeev-pandey23/vanilla-stream-tester/issues" class="chip" target="_blank" rel="noopener noreferrer">Feedback / Issues</a>
           <span class="chip">Sanjeev Pandey's Lab</span>
         </div>
@@ -79,6 +79,14 @@
               <div class="stat-label">Latency</div>
               <div id="statLatency" class="stat-value">-</div>
             </div>
+            <div class="stat-card">
+              <div class="stat-label">Stalls</div>
+              <div id="statStalls" class="stat-value">-</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Stall Time</div>
+              <div id="statStallTime" class="stat-value">-</div>
+            </div>
           </div>
 
           <div class="graphs">
@@ -97,11 +105,42 @@
               <canvas id="bitrateChart" width="520" height="160"></canvas>
             </div>
           </div>
+          <!-- <div class="graph-card waterfall-card">
+            <div class="graph-header">
+              <span>Segment Waterfall</span>
+              <span id="waterfallInfo" class="graph-value">-</span>
+            </div>
+            <canvas id="waterfallCanvas" width="1040" height="280"></canvas>
+          </div> -->
 
           <div class="logs">
             <div class="logs-header">Important Logs</div>
             <div id="logWindow" class="log-window" role="log" aria-live="polite"></div>
           </div>
+
+          <details class="detail-panel" id="switchesPanel">
+            <summary class="detail-summary">
+              <span>Quality Switch Timeline</span>
+              <span id="switchCount" class="graph-value">0 switches</span>
+            </summary>
+            <div id="switchTimeline" class="switch-timeline"></div>
+          </details>
+
+          <details class="detail-panel" id="manifestPanel">
+            <summary class="detail-summary">
+              <span>Manifest &amp; Response Headers</span>
+              <span class="graph-value dim">tap to expand</span>
+            </summary>
+            <div>
+              <div class="detail-section-title">Response Headers</div>
+              <div id="respHeaders" class="resp-headers"></div>
+              <div class="detail-section-title">
+                <span>Manifest</span>
+                <button id="copyManifestBtn" class="btn-tiny secondary" type="button">Copy</button>
+              </div>
+              <pre id="manifestViewer" class="manifest-viewer">-</pre>
+            </div>
+          </details>
         </section>
 
         <section class="panel config-panel">

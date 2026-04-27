@@ -176,6 +176,61 @@
         <p>Developer-focused player · Sanjeev Pandey's Lab</p>
       </header>
 
+      <!-- v0.0.5 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.5</span>
+          <span class="release-date">27 Apr 2026</span>
+        </div>
+
+        <div class="section-title">Diagnostics &amp; Observability</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Stall Counter</strong> — two new stat cards track the number of rebuffer
+            events and cumulative stall time across the session. Incremented on every
+            <code>waiting</code> event; elapsed time added when <code>playing</code> resumes.
+            Reset on each new playback session.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Quality Switch Timeline</strong> — collapsible panel logs every ABR switch
+            with a wall-clock timestamp, previous rendition, and new rendition (height + kbps).
+            HLS hooks <code>LEVEL_SWITCHED</code>; DASH hooks
+            <code>QUALITY_CHANGE_RENDERED</code> (video track only). Switch count shown in
+            the panel header.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Manifest Viewer</strong> — collapsible panel fetches the raw manifest
+            text on Play and displays it in a scrollable <code>pre</code> block. A Copy
+            button writes the full manifest to the clipboard. Skipped for local file sources.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Response Header Inspector</strong> — shown inside the Manifest panel;
+            captures <code>x-cache</code>, <code>via</code>, <code>content-type</code>,
+            <code>cdn-cache-control</code>, <code>cache-control</code>, <code>etag</code>,
+            <code>last-modified</code>, <code>age</code>, <code>x-amz-cf-pop</code>,
+            <code>x-served-by</code>, and <code>x-cache-hits</code> from the manifest fetch.
+            Falls back gracefully if CORS restricts header access.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Segment Waterfall</strong> — canvas chart below the buffer/bitrate graphs
+            showing a timeline of individual segment downloads. X-axis is wall-clock time
+            relative to session start; each bar's width represents download duration.
+            Detected via XHR interception on <code>.ts</code>, <code>.m4s</code>,
+            <code>.m4v</code>, <code>.m4a</code>, <code>.aac</code>, and <code>.webm</code>
+            requests. Displays last 25 segments; bar labels show duration in ms.
+          </li>
+        </ul>
+      </div>
+
       <!-- v0.0.4 -->
       <div class="release">
         <div class="release-header">
