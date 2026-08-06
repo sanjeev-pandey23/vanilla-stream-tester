@@ -29,7 +29,6 @@ const bitrateValue = document.getElementById("bitrateValue");
 const ttmlRenderingDiv = document.getElementById("ttmlRenderingDiv");
 const qualitySelect = document.getElementById("qualitySelect");
 const audioSelect = document.getElementById("audioSelect");
-const subtitleSelect = document.getElementById("subtitleSelect");
 const logWindow = document.getElementById("logWindow");
 const autoplayToggle = document.getElementById("autoplayToggle");
 const mutedToggle = document.getElementById("mutedToggle");
@@ -219,12 +218,63 @@ const describeSubtitleTrack = (track, index) => {
   return parts.join(" ");
 };
 
+const detectSubtitleFormat = (track) => {
+  // 1. DASH MediaInfo: codec attribute is the most precise signal
+  const codec = (track.codec || track.codecs || "").toLowerCase();
+  if (codec) {
+    if (codec.includes("stpp")) return "TTML";    // stpp / stpp.ttml.im1t etc.
+    if (codec.includes("wvtt")) return "WebVTT";  // wvtt (WebVTT in fMP4)
+    if (codec === "c608" || codec.includes("tx3g")) return "CEA-608";
+    if (codec === "c708") return "CEA-708";
+  }
+  // 2. DASH MediaInfo: mimeType fallback
+  const mime = (track.mimeType || "").toLowerCase();
+  if (mime) {
+    if (mime.includes("ttml") || mime.includes("imsc")) return "TTML";
+    if (mime.includes("vtt")) return "WebVTT";
+    if (mime.includes("mp4")) return "TTML";  // application/mp4 container → fMP4 TTML
+    if (mime === "text/plain") return "SRT";
+    if (mime.startsWith("image/")) return "Image subtitles";
+  }
+  // 3. HLS: instreamId uniquely identifies CEA-608 vs CEA-708
+  if (track.instreamId) {
+    if (/^CC[1-4]$/i.test(track.instreamId)) return "CEA-608";
+    if (/^SERVICE\d+$/i.test(track.instreamId)) return "CEA-708";
+    return "CEA";
+  }
+  // 4. HLS track type — check before URL since SUBTITLES type is definitive
+  if (track.type === "CLOSED-CAPTIONS") return "CEA CC";
+  if (track.type === "SUBTITLES") return "WebVTT";  // HLS external subs are always WebVTT
+  // 5. URL extension — handle both plain string and array (some HLS.js versions)
+  const rawUrl = Array.isArray(track.url) ? (track.url[0] || "") : (track.url || "");
+  if (rawUrl) {
+    const path = rawUrl.toLowerCase().split("?")[0];
+    if (path.endsWith(".vtt")) return "WebVTT";
+    if (path.endsWith(".m3u8")) return "WebVTT";  // HLS WebVTT sub-manifest
+    if (path.endsWith(".srt")) return "SRT";
+    if (path.endsWith(".ttml") || path.endsWith(".dfxp") || path.endsWith(".xml")) return "TTML";
+  }
+  // 6. Native TextTrack fallback — check label for CEA-608/708 before giving up
+  if (track.kind === "captions") {
+    const lbl = (track.label || "").trim();
+    if (/^CC[1-4]$/i.test(lbl)) return "CEA-608";
+    if (/^SERVICE\d+$/i.test(lbl)) return "CEA-708";
+    return "CC";
+  }
+  if (track.kind === "subtitles") return "Subtitles";
+  return null;
+};
+
 const logSubtitleDiscovery = (source, tracks) => {
-  const labels = tracks.map((track, index) => describeSubtitleTrack(track, index));
+  const labels = tracks.map((track, index) => {
+    const desc = describeSubtitleTrack(track, index);
+    const fmt = detectSubtitleFormat(track);
+    return fmt ? `${desc} [${fmt}]` : desc;
+  });
   const signature = `${source}|${labels.join("||")}`;
   if (!labels.length || subtitleDiscoverySignature === signature) return;
   subtitleDiscoverySignature = signature;
-  log("info", `SUB tracks discovered via ${source}: ${labels.join(", ")}`);
+  log("info", `SUB tracks via ${source}: ${labels.join(", ")}`);
 };
 
 const logSubtitleLoaded = (source, track, index, cueCount = null) => {
@@ -279,44 +329,48 @@ const getDashSubtitleTracks = () => {
   return dashPlayer.getTracksFor("text") || [];
 };
 
+const updateTextTrackInfo = (tracks) => {
+  const infoEl = document.getElementById("textTrackInfo");
+  if (!infoEl) return;
+  if (!tracks || !tracks.length) {
+    infoEl.classList.add("hidden");
+    infoEl.innerHTML = "";
+    return;
+  }
+  const tags = tracks.map((track, i) => {
+    const label = track.label || track.name || track.lang || track.language || `Track ${i + 1}`;
+    const lang = track.lang || track.language;
+    const langPart = (lang && lang !== label) ? ` (${lang})` : "";
+    const fmt = detectSubtitleFormat(track);
+    const fmtPart = fmt ? ` · <em>${fmt}</em>` : "";
+    return `<span class="track-tag">${label}${langPart}${fmtPart}</span>`;
+  }).join("");
+  infoEl.innerHTML = `<span class="track-tag-label">Text Tracks</span>${tags}`;
+  infoEl.classList.remove("hidden");
+};
+
 const updateSubtitleOptions = () => {
   let source = "none";
   let tracks = [];
-  let selectedValue = "off";
 
-  if (hlsPlayer && (hlsPlayer.subtitleTracks || []).length) {
+  if (hlsPlayer) {
+    // HLS player is active — only trust its own subtitle track list, never stale native tracks
     source = "hls";
     tracks = hlsPlayer.subtitleTracks || [];
-    const currentTrack = typeof hlsPlayer.subtitleTrack === "number" ? hlsPlayer.subtitleTrack : -1;
-    selectedValue = currentTrack >= 0 ? String(currentTrack) : "off";
-  } else if (dashPlayer && getDashSubtitleTracks().length) {
+  } else if (dashPlayer) {
+    // DASH player is active — same principle
     source = "dash";
     tracks = getDashSubtitleTracks();
-    let currentIndex = -1;
-    if (typeof dashPlayer.getCurrentTrackFor === "function") {
-      const currentTrack = dashPlayer.getCurrentTrackFor("text");
-      currentIndex = tracks.findIndex((track) => track === currentTrack);
-    }
-    if (currentIndex < 0 && typeof dashPlayer.getTextTrack === "function") {
-      currentIndex = dashPlayer.getTextTrack();
-    }
-    selectedValue = currentIndex >= 0 ? String(currentIndex) : "off";
   } else {
+    // No managed player running — safe to inspect native tracks
     source = "native";
     tracks = getNativeSubtitleTracks();
-    const activeIndex = tracks.findIndex((track) => track.mode === "showing");
-    selectedValue = activeIndex >= 0 ? String(activeIndex) : "off";
   }
 
   subtitleSource = tracks.length ? source : "none";
-  const options = tracks.map((track, index) => ({
-    value: String(index),
-    label: describeSubtitleTrack(track, index),
-  }));
-  setSelectOptions(subtitleSelect, options, "Off", "off");
-  subtitleSelect.value = tracks.length ? selectedValue : "off";
   logSubtitleDiscovery(source, tracks);
   syncNativeTextTrackObservers();
+  updateTextTrackInfo(tracks);
 };
 
 const setNativeSubtitleTrack = (index) => {
@@ -331,14 +385,16 @@ const setDashSubtitleTrack = (index) => {
   if (index < 0) {
     if (typeof dashPlayer.enableText === "function") {
       dashPlayer.enableText(false);
-    } else if (typeof dashPlayer.setTextTrack === "function") {
-      dashPlayer.setTextTrack(-1);
+    } else {
+      dashPlayer.updateSettings({ streaming: { text: { defaultEnabled: false } } });
     }
     return;
   }
 
   if (typeof dashPlayer.enableText === "function") {
     dashPlayer.enableText(true);
+  } else {
+    dashPlayer.updateSettings({ streaming: { text: { defaultEnabled: true } } });
   }
   const track = tracks[index];
   if (track && typeof dashPlayer.setCurrentTrack === "function") {
@@ -541,7 +597,7 @@ const resetStats = () => {
   if (statStallTime) statStallTime.textContent = "-";
   setSelectOptions(qualitySelect, []);
   setSelectOptions(audioSelect, []);
-  setSelectOptions(subtitleSelect, [], "Off", "off");
+  updateTextTrackInfo([]);
   liveBadge.classList.add("hidden");
   bufferHistory.length = 0;
   bitrateHistory.length = 0;
@@ -811,7 +867,7 @@ const loadDash = (source, drmConfig) => {
     log("info", `DASH: injecting ${Object.keys(customHeaders).length} custom header(s).`);
   }
 
-  const abrSettings = { ABRStrategy: abrAlgorithm };
+  const abrSettings = { abrStrategy: abrAlgorithm };
   if (maxCapKbps > 0) {
     abrSettings.maxBitrate = { video: maxCapKbps };
     log("info", `DASH: max bitrate cap set to ${maxCapKbps} kbps.`);
@@ -825,7 +881,7 @@ const loadDash = (source, drmConfig) => {
     log("info", `DASH: ABR algorithm set to ${abrAlgorithm}.`);
   }
 
-  const streamingSettings = { abr: abrSettings };
+  const streamingSettings = { abr: abrSettings, text: { defaultEnabled: true } };
   if (lowLatencyToggle.checked) {
     streamingSettings.lowLatencyEnabled = true;
   }
@@ -854,9 +910,17 @@ const loadDash = (source, drmConfig) => {
       recordSegment(req.url || "", relStart, duration, req.bytesLoaded || 0);
     }
   });
+  // MANIFEST_LOADED fires as soon as the MPD is parsed — bitrate list is reliable here
+  if (dashjs.MediaPlayer.events.MANIFEST_LOADED) {
+    dashPlayer.on(dashjs.MediaPlayer.events.MANIFEST_LOADED, () => {
+      updateDashOptions();
+    });
+  }
   dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
     updateDashOptions();
     updateSubtitleOptions();
+    // Text track info can arrive after STREAM_INITIALIZED; retry if still empty
+    setTimeout(() => { if (dashPlayer) updateSubtitleOptions(); }, 800);
   });
   if (dashjs.MediaPlayer.events.TEXT_TRACKS_ADDED) {
     dashPlayer.on(dashjs.MediaPlayer.events.TEXT_TRACKS_ADDED, (event) => {
@@ -948,6 +1012,7 @@ const handlePlay = () => {
 
   if (!source.startsWith("blob:") && !source.startsWith("data:")) {
     fetchManifestInfo(source);
+    history.replaceState(null, "", buildShareUrl());
   }
 
   if (type === "hls") {
@@ -1021,8 +1086,8 @@ const updateDashOptions = () => {
     if (typeof dashPlayer.getAutoSwitchQualityFor === "function") {
       return dashPlayer.getAutoSwitchQualityFor("video");
     }
-    if (typeof dashPlayer.getAutoSwitchQuality === "function") {
-      return dashPlayer.getAutoSwitchQuality();
+    if (typeof dashPlayer.getSettings === "function") {
+      return dashPlayer.getSettings()?.streaming?.abr?.autoSwitchBitrate?.video !== false;
     }
     return true;
   };
@@ -1131,8 +1196,6 @@ const updateStats = () => {
 
   bufferHistory.push(bufferLength);
   bitrateHistory.push(bitrate);
-  if (bufferHistory.length > maxHistory) bufferHistory.shift();
-  if (bitrateHistory.length > maxHistory) bitrateHistory.shift();
   drawCharts();
 };
 
@@ -1160,11 +1223,12 @@ const drawLineChart = (canvas, data, color) => {
   const minValue = Math.min(...data, 0);
   const range = Math.max(maxValue - minValue, 1);
 
+  const step = data.length > 1 ? width / (data.length - 1) : width;
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.beginPath();
   data.forEach((value, index) => {
-    const x = (index / (maxHistory - 1)) * width;
+    const x = index * step;
     const y = height - ((value - minValue) / range) * height;
     if (index === 0) {
       ctx.moveTo(x, y);
@@ -1208,17 +1272,16 @@ qualitySelect.addEventListener("change", () => {
   }
   if (dashPlayer) {
     if (value === "auto") {
+      // v4+ primary: updateSettings; v3 fallback: setAutoSwitchQualityFor
+      dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
       if (typeof dashPlayer.setAutoSwitchQualityFor === "function") {
         dashPlayer.setAutoSwitchQualityFor("video", true);
-      } else if (typeof dashPlayer.setAutoSwitchQuality === "function") {
-        dashPlayer.setAutoSwitchQuality(true);
       }
     } else {
-      if (typeof dashPlayer.setAutoSwitchQualityFor === "function") {
-        dashPlayer.setAutoSwitchQualityFor("video", false);
-      } else if (typeof dashPlayer.setAutoSwitchQuality === "function") {
-        dashPlayer.setAutoSwitchQuality(false);
-      }
+      // Disable ABR via settings (v4+ primary path)
+      dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
+      // setQualityFor without a third arg also disables ABR internally (noImplicitSwitch=false)
+      // DO NOT pass true here — that would mean "don't disable ABR", causing quality to be overridden
       if (typeof dashPlayer.setQualityFor === "function") {
         dashPlayer.setQualityFor("video", Number(value));
       } else if (typeof dashPlayer.setQuality === "function") {
@@ -1252,49 +1315,6 @@ audioSelect.addEventListener("change", () => {
     return;
   }
   log("warn", "Audio track selection not available.");
-});
-
-subtitleSelect.addEventListener("change", () => {
-  const value = subtitleSelect.value;
-  const index = value === "off" ? -1 : Number(value);
-
-  if (subtitleSource === "hls" && hlsPlayer) {
-    hlsPlayer.subtitleTrack = index;
-    if (index >= 0) {
-      const track = (hlsPlayer.subtitleTracks || [])[index];
-      log("info", `SUB track selected via hls: ${describeSubtitleTrack(track || { name: `Track ${index}` }, index)}`);
-    } else {
-      log("info", "SUB track disabled via hls.");
-    }
-    updateSubtitleOptions();
-    return;
-  }
-
-  if (subtitleSource === "dash" && dashPlayer) {
-    setDashSubtitleTrack(index);
-    if (index >= 0) {
-      const track = getDashSubtitleTracks()[index];
-      log("info", `SUB track selected via dash: ${describeSubtitleTrack(track || { id: `Track ${index}` }, index)}`);
-    } else {
-      log("info", "SUB track disabled via dash.");
-    }
-    updateSubtitleOptions();
-    return;
-  }
-
-  const nativeTracks = getNativeSubtitleTracks();
-  if (nativeTracks.length) {
-    setNativeSubtitleTrack(index);
-    if (index >= 0) {
-      log("info", `SUB track selected via native: ${describeSubtitleTrack(nativeTracks[index], index)}`);
-    } else {
-      log("info", "SUB track disabled via native.");
-    }
-    updateSubtitleOptions();
-    return;
-  }
-
-  log("warn", "Subtitle selection not available.");
 });
 
 playBtn.addEventListener("click", handlePlay);
@@ -1441,33 +1461,39 @@ if (networkLogsToggle) {
   window.__networkLogsEnabled = networkLogsToggle.checked;
 }
 
-if (shareBtn) {
-  shareBtn.addEventListener("click", () => {
-    const shareUrl = buildShareUrl();
-    const copyToClipboard = (text) => {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        return navigator.clipboard.writeText(text);
-      }
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      return Promise.resolve();
-    };
-    copyToClipboard(shareUrl).then(() => {
-      shareBtn.textContent = "Copied!";
-      setTimeout(() => { shareBtn.textContent = "Share"; }, 2000);
-      log("info", "Share URL copied to clipboard.");
-    }).catch(() => {
-      log("warn", "Could not copy share URL.");
-    });
+const copyToClipboard = (text) => {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+  return Promise.resolve();
+};
+
+const doShare = (btn) => {
+  const shareUrl = buildShareUrl();
+  copyToClipboard(shareUrl).then(() => {
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = "Copied!";
+      setTimeout(() => { btn.innerHTML = orig; }, 2000);
+    }
+    log("info", "Share URL copied to clipboard.");
+  }).catch(() => {
+    log("warn", "Could not copy share URL.");
   });
-}
+};
+
+[shareBtn, document.getElementById("headerShareBtn"), document.getElementById("configShareBtn")]
+  .filter(Boolean)
+  .forEach((btn) => btn.addEventListener("click", () => doShare(btn)));
 
 if (copyManifestBtn) {
   copyManifestBtn.addEventListener("click", () => {

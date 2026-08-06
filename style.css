@@ -94,6 +94,47 @@ a.chip.chip-gh:hover {
   color: var(--accent);
 }
 
+.btn-share-chip {
+  background: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.btn-share-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.config-share-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2px;
+}
+
+.btn-share-inline {
+  background: none;
+  border: 2px solid var(--border);
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 2px 2px 0 var(--border);
+}
+
+.btn-share-inline:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.95fr);
@@ -325,6 +366,36 @@ button.secondary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.text-track-info {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.track-tag-label {
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.track-tag {
+  border: 2px solid var(--border);
+  padding: 4px 9px;
+  font-size: 11px;
+  background: #ffffff;
+  box-shadow: 2px 2px 0 var(--border);
+}
+
+.track-tag em {
+  font-style: normal;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .control-row {
