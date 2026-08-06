@@ -176,6 +176,133 @@
         <p>Developer-focused player · Sanjeev Pandey's Lab</p>
       </header>
 
+      <!-- v0.0.6 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.6</span>
+          <span class="release-date">6 Aug 2026</span>
+        </div>
+
+        <div class="section-title">Subtitles &amp; Closed Captions</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <span class="tag dash">DASH</span>
+            <strong>Text Track Info Strip</strong> — replaces the external subtitle dropdown.
+            When a stream carries text tracks the player controls area shows a compact strip of
+            chips, one per track, labelled with language and exact format:
+            <code>TTML</code>, <code>WebVTT</code>, <code>CEA-608</code>, <code>CEA-708</code>,
+            <code>SRT</code>, or <code>Image subtitles</code>. The native in-player CC button
+            handles track selection. Strip is hidden for streams with no text tracks and clears
+            correctly when switching to a stream that lacks subtitles.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag dash">DASH</span>
+            <strong>Format detection by codec</strong> — DASH <code>MediaInfo</code> codec
+            strings are the primary signal: <code>stpp</code> / <code>stpp.ttml.*</code> →
+            TTML, <code>wvtt</code> → WebVTT, <code>c608</code> / <code>tx3g</code> →
+            CEA-608, <code>c708</code> → CEA-708. <code>mimeType</code> used as fallback.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <span class="tag hls">HLS</span>
+            <strong>Format detection for HLS tracks</strong> — <code>instreamId</code>
+            (<code>CC1–CC4</code> → CEA-608, <code>SERVICE*</code> → CEA-708),
+            <code>type: SUBTITLES</code> field, URL extension (<code>.vtt</code>,
+            <code>.m3u8</code> sub-manifests, <code>.srt</code>, <code>.ttml</code>),
+            and native track label as final fallback.
+          </li>
+          <li>
+            <span class="tag fix">Fix</span>
+            <span class="tag dash">DASH</span>
+            <strong>Subtitle pipeline not starting</strong> — dash.js v4 disables text streaming
+            by default. Added <code>streaming.text.defaultEnabled: true</code> to the initial
+            <code>updateSettings</code> call so text adaptation sets are loaded from the start.
+          </li>
+          <li>
+            <span class="tag fix">Fix</span>
+            <strong>Stale text tracks on stream switch</strong> — when loading a stream without
+            subtitles after one that had them, the strip now correctly clears. Fixed by only
+            consulting the active player's own subtitle API; native <code>TextTrack</code>
+            objects (which can linger after player teardown) are ignored while a managed player
+            is alive.
+          </li>
+        </ul>
+
+        <div class="section-title">DASH Quality Selection</div>
+        <ul>
+          <li>
+            <span class="tag fix">Fix</span>
+            <span class="tag dash">DASH</span>
+            <strong>Manual quality not sticking</strong> — two root causes fixed. (1)
+            <code>streaming.abr.ABRStrategy</code> was rejected by dash.js v4's settings
+            validator (renamed to <code>abrStrategy</code>). (2) <code>setQualityFor</code>
+            was called with <code>noImplicitSwitch = true</code>, which kept ABR running and
+            caused it to override the chosen quality immediately. Now uses
+            <code>updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } })</code>
+            followed by <code>setQualityFor("video", index)</code> (no third arg).
+          </li>
+          <li>
+            <span class="tag fix">Fix</span>
+            <span class="tag dash">DASH</span>
+            <strong>Bitrate list empty at init</strong> — added a
+            <code>MANIFEST_LOADED</code> listener that triggers <code>updateDashOptions</code>
+            as soon as the MPD is parsed, before <code>STREAM_INITIALIZED</code>. The
+            auto/manual state now reads from <code>getSettings().streaming.abr.autoSwitchBitrate</code>
+            when the legacy <code>getAutoSwitchQualityFor</code> API is absent.
+          </li>
+        </ul>
+
+        <div class="section-title">Sharing &amp; URL State</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Address bar sync on Play</strong> — when Play is clicked the browser
+            address bar is updated via <code>history.replaceState</code> to the full shareable
+            URL (stream URL + all config). Reloading the tab or pasting the URL restores the
+            exact session.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Two share icon buttons</strong> — a Share chip in the app header (top-right)
+            and a compact Share button above the Stream URL field both copy the current player
+            URL to the clipboard with a 2 s "Copied!" confirmation. All three share buttons
+            (including the existing one in the actions row) share the same <code>doShare()</code>
+            helper.
+          </li>
+        </ul>
+
+        <div class="section-title">Charts</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Full-session graph view</strong> — buffer and bitrate charts no longer
+            scroll; all data from the moment Play is pressed is retained and the entire
+            session history is visible at once. As new samples arrive the x-axis compresses
+            uniformly so the start point stays anchored at the left edge.
+          </li>
+        </ul>
+
+        <div class="section-title">Bug Fixes &amp; Polish</div>
+        <ul>
+          <li>
+            <span class="tag fix">Fix</span>
+            <strong>Local file label opens file picker</strong> — removed the <code>for</code>
+            attribute from the "Local file" label so clicking the label text no longer
+            inadvertently triggers the file picker; only the native file input itself is
+            interactive.
+          </li>
+          <li>
+            <span class="tag fix">Fix</span>
+            <span class="tag dash">DASH</span>
+            <strong>Quality and Audio controls inline</strong> — player controls area uses a
+            two-column grid so Quality and Audio Track sit side-by-side in one row.
+          </li>
+        </ul>
+      </div>
+
       <!-- v0.0.5 -->
       <div class="release">
         <div class="release-header">
