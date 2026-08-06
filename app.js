@@ -29,6 +29,7 @@ const bitrateValue = document.getElementById("bitrateValue");
 const ttmlRenderingDiv = document.getElementById("ttmlRenderingDiv");
 const qualitySelect = document.getElementById("qualitySelect");
 const audioSelect = document.getElementById("audioSelect");
+const subtitleSelect = document.getElementById("subtitleSelect");
 const logWindow = document.getElementById("logWindow");
 const autoplayToggle = document.getElementById("autoplayToggle");
 const mutedToggle = document.getElementById("mutedToggle");
@@ -64,12 +65,16 @@ let totalStallMs = 0;
 let stallStartedAt = null;
 let waterfallSessionStart = null;
 let waterfallSessionWall = null;
+let subtitleSource = "none";
+let subtitleDiscoverySignature = "";
 const qualitySwitches = [];
 const segmentWaterfall = [];
 const maxWaterfallEntries = 25;
 const bufferHistory = [];
 const bitrateHistory = [];
 const maxHistory = 60;
+const observedTextTracks = new WeakSet();
+const loadedTextTracks = new WeakSet();
 
 const log = (level, message) => {
   const entry = document.createElement("div");
@@ -178,10 +183,10 @@ const setupNetworkLogging = () => {
   };
 };
 
-const setSelectOptions = (select, options, autoLabel = "Auto") => {
+const setSelectOptions = (select, options, autoLabel = "Auto", autoValue = "auto") => {
   select.innerHTML = "";
   const autoOption = document.createElement("option");
-  autoOption.value = "auto";
+  autoOption.value = autoValue;
   autoOption.textContent = autoLabel;
   select.appendChild(autoOption);
 
@@ -193,6 +198,156 @@ const setSelectOptions = (select, options, autoLabel = "Auto") => {
   });
 
   select.disabled = options.length === 0;
+};
+
+const getNativeSubtitleTracks = () => {
+  if (!video.textTracks) return [];
+  return Array.from(video.textTracks).filter((track) => {
+    const kind = String(track.kind || "").toLowerCase();
+    return kind !== "metadata" && kind !== "chapters" && kind !== "descriptions";
+  });
+};
+
+const describeSubtitleTrack = (track, index) => {
+  const parts = [];
+  const label = track.label || track.name || track.id || `Track ${index + 1}`;
+  parts.push(label);
+  const language = track.lang || track.language;
+  if (language) parts.push(`(${language})`);
+  const kind = track.kind || track.roles?.[0] || track.type;
+  if (kind && !String(kind).includes("[object")) parts.push(`[${kind}]`);
+  return parts.join(" ");
+};
+
+const logSubtitleDiscovery = (source, tracks) => {
+  const labels = tracks.map((track, index) => describeSubtitleTrack(track, index));
+  const signature = `${source}|${labels.join("||")}`;
+  if (!labels.length || subtitleDiscoverySignature === signature) return;
+  subtitleDiscoverySignature = signature;
+  log("info", `SUB tracks discovered via ${source}: ${labels.join(", ")}`);
+};
+
+const logSubtitleLoaded = (source, track, index, cueCount = null) => {
+  const countLabel = Number.isFinite(cueCount) ? ` (${cueCount} cue${cueCount === 1 ? "" : "s"})` : "";
+  log("info", `SUB track loaded via ${source}: ${describeSubtitleTrack(track, index)}${countLabel}`);
+};
+
+const syncNativeTextTrackObservers = () => {
+  getNativeSubtitleTracks().forEach((track, index) => {
+    if (observedTextTracks.has(track)) return;
+    observedTextTracks.add(track);
+
+    const maybeLogLoaded = () => {
+      let cueCount = 0;
+      try {
+        cueCount = track.cues ? track.cues.length : 0;
+      } catch (_) {
+        cueCount = 0;
+      }
+      let activeCount = 0;
+      try {
+        activeCount = track.activeCues ? track.activeCues.length : 0;
+      } catch (_) {
+        activeCount = 0;
+      }
+      if (!loadedTextTracks.has(track) && (cueCount > 0 || activeCount > 0)) {
+        loadedTextTracks.add(track);
+        logSubtitleLoaded("native", track, index, cueCount || activeCount);
+      }
+    };
+
+    if (typeof track.addEventListener === "function") {
+      track.addEventListener("cuechange", maybeLogLoaded);
+    }
+    maybeLogLoaded();
+  });
+};
+
+const bindNativeTextTrackListListeners = () => {
+  if (!video.textTracks || video.__subtitleTrackListBound) return;
+  video.__subtitleTrackListBound = true;
+  ["addtrack", "removetrack", "change"].forEach((eventName) => {
+    video.textTracks.addEventListener(eventName, () => {
+      syncNativeTextTrackObservers();
+      updateSubtitleOptions();
+    });
+  });
+};
+
+const getDashSubtitleTracks = () => {
+  if (!dashPlayer || typeof dashPlayer.getTracksFor !== "function") return [];
+  return dashPlayer.getTracksFor("text") || [];
+};
+
+const updateSubtitleOptions = () => {
+  let source = "none";
+  let tracks = [];
+  let selectedValue = "off";
+
+  if (hlsPlayer && (hlsPlayer.subtitleTracks || []).length) {
+    source = "hls";
+    tracks = hlsPlayer.subtitleTracks || [];
+    const currentTrack = typeof hlsPlayer.subtitleTrack === "number" ? hlsPlayer.subtitleTrack : -1;
+    selectedValue = currentTrack >= 0 ? String(currentTrack) : "off";
+  } else if (dashPlayer && getDashSubtitleTracks().length) {
+    source = "dash";
+    tracks = getDashSubtitleTracks();
+    let currentIndex = -1;
+    if (typeof dashPlayer.getCurrentTrackFor === "function") {
+      const currentTrack = dashPlayer.getCurrentTrackFor("text");
+      currentIndex = tracks.findIndex((track) => track === currentTrack);
+    }
+    if (currentIndex < 0 && typeof dashPlayer.getTextTrack === "function") {
+      currentIndex = dashPlayer.getTextTrack();
+    }
+    selectedValue = currentIndex >= 0 ? String(currentIndex) : "off";
+  } else {
+    source = "native";
+    tracks = getNativeSubtitleTracks();
+    const activeIndex = tracks.findIndex((track) => track.mode === "showing");
+    selectedValue = activeIndex >= 0 ? String(activeIndex) : "off";
+  }
+
+  subtitleSource = tracks.length ? source : "none";
+  const options = tracks.map((track, index) => ({
+    value: String(index),
+    label: describeSubtitleTrack(track, index),
+  }));
+  setSelectOptions(subtitleSelect, options, "Off", "off");
+  subtitleSelect.value = tracks.length ? selectedValue : "off";
+  logSubtitleDiscovery(source, tracks);
+  syncNativeTextTrackObservers();
+};
+
+const setNativeSubtitleTrack = (index) => {
+  const tracks = getNativeSubtitleTracks();
+  tracks.forEach((track, trackIndex) => {
+    track.mode = trackIndex === index ? "showing" : "disabled";
+  });
+};
+
+const setDashSubtitleTrack = (index) => {
+  const tracks = getDashSubtitleTracks();
+  if (index < 0) {
+    if (typeof dashPlayer.enableText === "function") {
+      dashPlayer.enableText(false);
+    } else if (typeof dashPlayer.setTextTrack === "function") {
+      dashPlayer.setTextTrack(-1);
+    }
+    return;
+  }
+
+  if (typeof dashPlayer.enableText === "function") {
+    dashPlayer.enableText(true);
+  }
+  const track = tracks[index];
+  if (track && typeof dashPlayer.setCurrentTrack === "function") {
+    dashPlayer.setCurrentTrack(track);
+    return;
+  }
+  if (typeof dashPlayer.setTextTrack === "function") {
+    dashPlayer.setTextTrack(index);
+  }
 };
 
 /* ── Quality switch timeline ── */
@@ -386,9 +541,12 @@ const resetStats = () => {
   if (statStallTime) statStallTime.textContent = "-";
   setSelectOptions(qualitySelect, []);
   setSelectOptions(audioSelect, []);
+  setSelectOptions(subtitleSelect, [], "Off", "off");
   liveBadge.classList.add("hidden");
   bufferHistory.length = 0;
   bitrateHistory.length = 0;
+  subtitleDiscoverySignature = "";
+  subtitleSource = "none";
   drawCharts();
   renderSwitchTimeline();
   drawWaterfall();
@@ -548,10 +706,44 @@ const loadHls = (source, drmConfig) => {
         }
       }
       updateHlsOptions();
+      updateSubtitleOptions();
     });
     hlsPlayer.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
       updateHlsOptions();
     });
+    if (Hls.Events.SUBTITLE_TRACKS_UPDATED) {
+      hlsPlayer.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, data) => {
+        const tracks = data?.subtitleTracks || hlsPlayer.subtitleTracks || [];
+        logSubtitleDiscovery("hls", tracks);
+        updateSubtitleOptions();
+      });
+    }
+    if (Hls.Events.SUBTITLE_TRACK_LOADING) {
+      hlsPlayer.on(Hls.Events.SUBTITLE_TRACK_LOADING, (_, data) => {
+        log("info", `SUB track loading via hls: track ${data?.id ?? "?"}`);
+      });
+    }
+    if (Hls.Events.SUBTITLE_TRACK_LOADED) {
+      hlsPlayer.on(Hls.Events.SUBTITLE_TRACK_LOADED, (_, data) => {
+        const trackId = data?.id;
+        const track = (hlsPlayer.subtitleTracks || [])[trackId] || { name: `Track ${trackId}` };
+        const cueCount = Array.isArray(data?.details?.fragments) ? data.details.fragments.length : null;
+        logSubtitleLoaded("hls", track, trackId || 0, cueCount);
+        updateSubtitleOptions();
+      });
+    }
+    if (Hls.Events.SUBTITLE_TRACK_SWITCH) {
+      hlsPlayer.on(Hls.Events.SUBTITLE_TRACK_SWITCH, (_, data) => {
+        const trackId = data?.id;
+        const track = trackId >= 0 ? (hlsPlayer.subtitleTracks || [])[trackId] : null;
+        if (track) {
+          log("info", `SUB track selected via hls: ${describeSubtitleTrack(track, trackId)}`);
+        } else {
+          log("info", "SUB track disabled via hls.");
+        }
+        updateSubtitleOptions();
+      });
+    }
     hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
       const levels = hlsPlayer.levels || [];
       const newIdx = data.level;
@@ -664,7 +856,34 @@ const loadDash = (source, drmConfig) => {
   });
   dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
     updateDashOptions();
+    updateSubtitleOptions();
   });
+  if (dashjs.MediaPlayer.events.TEXT_TRACKS_ADDED) {
+    dashPlayer.on(dashjs.MediaPlayer.events.TEXT_TRACKS_ADDED, (event) => {
+      const tracks = event?.tracks || getDashSubtitleTracks();
+      logSubtitleDiscovery("dash", tracks);
+      updateSubtitleOptions();
+    });
+  }
+  if (dashjs.MediaPlayer.events.TEXT_TRACK_ADDED) {
+    dashPlayer.on(dashjs.MediaPlayer.events.TEXT_TRACK_ADDED, (event) => {
+      const track = event?.track || event?.currentTrack;
+      if (track) {
+        logSubtitleLoaded("dash", track, getDashSubtitleTracks().findIndex((entry) => entry === track));
+      }
+      updateSubtitleOptions();
+    });
+  }
+  if (dashjs.MediaPlayer.events.TRACK_CHANGE_RENDERED) {
+    dashPlayer.on(dashjs.MediaPlayer.events.TRACK_CHANGE_RENDERED, (event) => {
+      if (event?.mediaType !== "text") return;
+      const track = event?.newMediaInfo || event?.currentTrack;
+      if (track) {
+        log("info", `SUB track selected via dash: ${describeSubtitleTrack(track, getDashSubtitleTracks().findIndex((entry) => entry === track))}`);
+      }
+      updateSubtitleOptions();
+    });
+  }
   dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (event) => {
     if (event.mediaType !== "video") return;
     const getBitrateInfo = () => {
@@ -774,6 +993,7 @@ const updateHlsOptions = () => {
   } else {
     audioSelect.value = "auto";
   }
+  updateSubtitleOptions();
 };
 
 const updateDashOptions = () => {
@@ -831,6 +1051,7 @@ const updateDashOptions = () => {
   } else {
     audioSelect.value = "auto";
   }
+  updateSubtitleOptions();
 };
 
 const formatNumber = (value, decimals = 1) => {
@@ -975,6 +1196,8 @@ fileInput.addEventListener("change", () => {
   }
 });
 updateHttpWarning();
+bindNativeTextTrackListListeners();
+syncNativeTextTrackObservers();
 
 qualitySelect.addEventListener("change", () => {
   const value = qualitySelect.value;
@@ -1031,6 +1254,49 @@ audioSelect.addEventListener("change", () => {
   log("warn", "Audio track selection not available.");
 });
 
+subtitleSelect.addEventListener("change", () => {
+  const value = subtitleSelect.value;
+  const index = value === "off" ? -1 : Number(value);
+
+  if (subtitleSource === "hls" && hlsPlayer) {
+    hlsPlayer.subtitleTrack = index;
+    if (index >= 0) {
+      const track = (hlsPlayer.subtitleTracks || [])[index];
+      log("info", `SUB track selected via hls: ${describeSubtitleTrack(track || { name: `Track ${index}` }, index)}`);
+    } else {
+      log("info", "SUB track disabled via hls.");
+    }
+    updateSubtitleOptions();
+    return;
+  }
+
+  if (subtitleSource === "dash" && dashPlayer) {
+    setDashSubtitleTrack(index);
+    if (index >= 0) {
+      const track = getDashSubtitleTracks()[index];
+      log("info", `SUB track selected via dash: ${describeSubtitleTrack(track || { id: `Track ${index}` }, index)}`);
+    } else {
+      log("info", "SUB track disabled via dash.");
+    }
+    updateSubtitleOptions();
+    return;
+  }
+
+  const nativeTracks = getNativeSubtitleTracks();
+  if (nativeTracks.length) {
+    setNativeSubtitleTrack(index);
+    if (index >= 0) {
+      log("info", `SUB track selected via native: ${describeSubtitleTrack(nativeTracks[index], index)}`);
+    } else {
+      log("info", "SUB track disabled via native.");
+    }
+    updateSubtitleOptions();
+    return;
+  }
+
+  log("warn", "Subtitle selection not available.");
+});
+
 playBtn.addEventListener("click", handlePlay);
 inlinePlayBtn.addEventListener("click", handlePlay);
 stopBtn.addEventListener("click", handleStop);
@@ -1061,10 +1327,13 @@ video.addEventListener("loadedmetadata", () => {
   log("info", "Metadata loaded.");
   updateStats();
   startStatsLoop();
+  syncNativeTextTrackObservers();
   if (hlsPlayer) {
     updateHlsOptions();
   } else if (dashPlayer) {
     updateDashOptions();
+  } else {
+    updateSubtitleOptions();
   }
 });
 
