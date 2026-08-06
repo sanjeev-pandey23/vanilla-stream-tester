@@ -66,6 +66,8 @@ let waterfallSessionStart = null;
 let waterfallSessionWall = null;
 let subtitleSource = "none";
 let subtitleDiscoverySignature = "";
+let dashAbrEnabled = true;
+let dashRepresentations = []; // cached from getRepresentationsByType, used by quality setter
 const qualitySwitches = [];
 const segmentWaterfall = [];
 const maxWaterfallEntries = 25;
@@ -634,6 +636,8 @@ const cleanupPlayers = () => {
   stallStartedAt = null;
   waterfallSessionStart = null;
   waterfallSessionWall = null;
+  dashAbrEnabled = true;
+  dashRepresentations = [];
   qualitySwitches.length = 0;
   segmentWaterfall.length = 0;
   video.removeAttribute("src");
@@ -910,13 +914,30 @@ const loadDash = (source, drmConfig) => {
       recordSegment(req.url || "", relStart, duration, req.bytesLoaded || 0);
     }
   });
-  // MANIFEST_LOADED fires as soon as the MPD is parsed — bitrate list is reliable here
+  // MANIFEST_LOADED fires as soon as the MPD is parsed — bitrate list may not be ready yet
   if (dashjs.MediaPlayer.events.MANIFEST_LOADED) {
     dashPlayer.on(dashjs.MediaPlayer.events.MANIFEST_LOADED, () => {
       updateDashOptions();
     });
   }
   dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+    // Log available quality APIs to diagnose version-specific differences
+    const qualityApis = [
+      "getBitrateInfoListFor","getBitrateInfoList","getRepresentationsByType",
+      "getQualityFor","setQualityFor","getAutoSwitchQualityFor","setAutoSwitchQualityFor","getTracksFor",
+      // v5 candidates
+      "setRepresentationForTypeById","getCurrentRepresentationForType",
+      "setCurrentRepresentationForType","getRepresentation","setRepresentation",
+      "updateSettings","getSettings",
+    ];
+    const found = qualityApis.filter(m => typeof dashPlayer[m] === "function");
+    log("info", `DASH APIs: ${found.join(", ") || "none found"}`);
+    // Log first few representations so we know their structure
+    if (typeof dashPlayer.getRepresentationsByType === "function") {
+      const reps = dashPlayer.getRepresentationsByType("video") || [];
+      const repInfo = reps.slice(0, 4).map((r, i) => `[${i}] id=${r.id} bw=${r.bandwidth} ${r.height||""}p`).join(", ");
+      log("info", `DASH reps: ${repInfo || "empty"}`);
+    }
     updateDashOptions();
     updateSubtitleOptions();
     // Text track info can arrive after STREAM_INITIALIZED; retry if still empty
@@ -950,21 +971,34 @@ const loadDash = (source, drmConfig) => {
   }
   dashPlayer.on(dashjs.MediaPlayer.events.QUALITY_CHANGE_RENDERED, (event) => {
     if (event.mediaType !== "video") return;
-    const getBitrateInfo = () => {
-      if (typeof dashPlayer.getBitrateInfoListFor === "function") return dashPlayer.getBitrateInfoListFor("video") || [];
-      return [];
+    // v5: event.oldRepresentation / event.newRepresentation (objects with bandwidth/height)
+    // v4: event.oldQuality / event.newQuality (integer indices into getBitrateInfoListFor)
+    const repLabel = (rep, idx) => {
+      if (rep && (rep.bandwidth || rep.height)) {
+        const h = rep.height ? `${rep.height}p / ` : "";
+        return `${h}${Math.round((rep.bandwidth || 0) / 1000)} kbps`;
+      }
+      if (idx !== undefined && idx !== null && !Number.isNaN(Number(idx))) {
+        const bitrateList = typeof dashPlayer.getBitrateInfoListFor === "function"
+          ? (dashPlayer.getBitrateInfoListFor("video") || []) : [];
+        const info = bitrateList[idx];
+        if (info) return `${info.height || "?"}p / ${Math.round((info.bitrate || 0) / 1000)} kbps`;
+        return `Q${idx}`;
+      }
+      return null;
     };
-    const bitrates = getBitrateInfo();
-    const oldInfo = bitrates[event.oldQuality];
-    const newInfo = bitrates[event.newQuality];
-    const fromLabel = oldInfo
-      ? `${oldInfo.height || "?"}p / ${Math.round((oldInfo.bitrate || 0) / 1000)} kbps`
-      : `Q${event.oldQuality}`;
-    const toLabel = newInfo
-      ? `${newInfo.height || "?"}p / ${Math.round((newInfo.bitrate || 0) / 1000)} kbps`
-      : `Q${event.newQuality}`;
-    recordQualitySwitch(fromLabel, toLabel);
-    updateDashOptions();
+    const fromLabel = repLabel(event.oldRepresentation, event.oldQuality);
+    const toLabel = repLabel(event.newRepresentation, event.newQuality);
+    if (fromLabel && toLabel) recordQualitySwitch(fromLabel, toLabel);
+    // Update select to reflect current ABR quality (manual mode: leave it alone)
+    if (dashAbrEnabled) {
+      if (event.newRepresentation && dashRepresentations.length) {
+        const idx = dashRepresentations.findIndex(r => r.id === event.newRepresentation.id || r === event.newRepresentation);
+        if (idx >= 0) qualitySelect.value = String(idx);
+      } else if (event.newQuality !== undefined) {
+        qualitySelect.value = String(event.newQuality);
+      }
+    }
   });
   dashPlayer.on("error", (event) => {
     log("error", `DASH error: ${event?.error || "unknown"}`);
@@ -1063,17 +1097,39 @@ const updateHlsOptions = () => {
 
 const updateDashOptions = () => {
   if (!dashPlayer) return;
-  const getBitrateList = () => {
+  // Build bitrate/representation list — handles both v4 (getBitrateInfoListFor) and v5 (getRepresentationsByType)
+  const buildBitrateList = () => {
     if (typeof dashPlayer.getBitrateInfoListFor === "function") {
-      return dashPlayer.getBitrateInfoListFor("video") || [];
+      const list = dashPlayer.getBitrateInfoListFor("video") || [];
+      if (list.length) {
+        dashRepresentations = []; // v4 path — no rep objects to cache
+        return list;
+      }
     }
     if (typeof dashPlayer.getBitrateInfoList === "function") {
-      return dashPlayer.getBitrateInfoList("video") || [];
+      const list = dashPlayer.getBitrateInfoList("video") || [];
+      if (list.length) {
+        dashRepresentations = [];
+        return list;
+      }
+    }
+    // v5: getRepresentationsByType returns Representation objects with bandwidth/width/height/id
+    if (typeof dashPlayer.getRepresentationsByType === "function") {
+      const reps = dashPlayer.getRepresentationsByType("video") || [];
+      if (reps.length) {
+        dashRepresentations = reps; // cache so quality setter can look up by index
+        return reps.map((r, i) => ({
+          qualityIndex: i,
+          bitrate: r.bandwidth || 0,
+          width: r.width || 0,
+          height: r.height || 0,
+        }));
+      }
     }
     log("warn", "DASH bitrate list API not available.");
     return [];
   };
-  const bitrates = getBitrateList();
+  const bitrates = buildBitrateList();
   const bitrateOptions = bitrates.map((rate, index) => {
     const parts = [];
     if (rate.height) parts.push(`${rate.height}p`);
@@ -1082,26 +1138,8 @@ const updateDashOptions = () => {
     return { value: String(index), label };
   });
   setSelectOptions(qualitySelect, bitrateOptions);
-  const getIsAuto = () => {
-    if (typeof dashPlayer.getAutoSwitchQualityFor === "function") {
-      return dashPlayer.getAutoSwitchQualityFor("video");
-    }
-    if (typeof dashPlayer.getSettings === "function") {
-      return dashPlayer.getSettings()?.streaming?.abr?.autoSwitchBitrate?.video !== false;
-    }
-    return true;
-  };
-  const getQuality = () => {
-    if (typeof dashPlayer.getQualityFor === "function") {
-      return dashPlayer.getQualityFor("video");
-    }
-    if (typeof dashPlayer.getQuality === "function") {
-      return dashPlayer.getQuality();
-    }
-    return 0;
-  };
-  const isAuto = getIsAuto();
-  qualitySelect.value = isAuto ? "auto" : String(getQuality());
+  // Use our tracked state — avoids race conditions with the player API
+  qualitySelect.value = dashAbrEnabled ? "auto" : qualitySelect.value;
 
   const tracks = dashPlayer.getTracksFor("audio") || [];
   const trackOptions = tracks.map((track, index) => {
@@ -1272,23 +1310,34 @@ qualitySelect.addEventListener("change", () => {
   }
   if (dashPlayer) {
     if (value === "auto") {
-      // v4+ primary: updateSettings; v3 fallback: setAutoSwitchQualityFor
+      dashAbrEnabled = true;
       dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: true } } } });
       if (typeof dashPlayer.setAutoSwitchQualityFor === "function") {
         dashPlayer.setAutoSwitchQualityFor("video", true);
       }
     } else {
-      // Disable ABR via settings (v4+ primary path)
+      dashAbrEnabled = false;
       dashPlayer.updateSettings({ streaming: { abr: { autoSwitchBitrate: { video: false } } } });
-      // setQualityFor without a third arg also disables ABR internally (noImplicitSwitch=false)
-      // DO NOT pass true here — that would mean "don't disable ABR", causing quality to be overridden
-      if (typeof dashPlayer.setQualityFor === "function") {
-        dashPlayer.setQualityFor("video", Number(value));
+      if (typeof dashPlayer.setAutoSwitchQualityFor === "function") {
+        dashPlayer.setAutoSwitchQualityFor("video", false);
+      }
+      const idx = Number(value);
+      const rep = dashRepresentations[idx]; // available when using v5 getRepresentationsByType
+      // v5: setRepresentationForTypeById(type, representationId)
+      if (rep && typeof dashPlayer.setRepresentationForTypeById === "function") {
+        dashPlayer.setRepresentationForTypeById("video", rep.id);
+        log("info", `DASH quality: manual → ${rep.bandwidth ? Math.round(rep.bandwidth/1000)+"kbps" : "index "+idx} (setRepresentationForTypeById)`);
+      } else if (typeof dashPlayer.setQualityFor === "function") {
+        // v4: noImplicitSwitch=true keeps ABR disabled after the switch
+        dashPlayer.setQualityFor("video", idx, true);
+        log("info", `DASH quality: manual → index ${idx} (setQualityFor)`);
       } else if (typeof dashPlayer.setQuality === "function") {
-        dashPlayer.setQuality(Number(value));
+        dashPlayer.setQuality(idx);
+        log("info", `DASH quality: manual → index ${idx} (setQuality)`);
+      } else {
+        log("warn", `DASH quality: no setter API found — available: ${Object.keys(dashPlayer).filter(k => k.startsWith("set")).join(", ")}`);
       }
     }
-    log("info", "DASH quality updated.");
     return;
   }
   log("warn", "Quality selection not available.");
