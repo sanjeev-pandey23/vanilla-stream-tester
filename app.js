@@ -748,6 +748,7 @@ const loadFairPlay = async (source, drmConfig) => {
     // 3. Register encrypted handler BEFORE src — no events will be missed.
     //    No { once: true } — video and audio each fire their own encrypted event.
     let pendingSessions = 0; // how many sessions are waiting for CKC
+    let hasRecoveredFromDecodeError = false; // one-shot recovery guard
     const activeSessions = new Map();
     video.addEventListener("encrypted", async (event) => {
       log("info", `FairPlay: encrypted event (type=${event.initDataType})`);
@@ -756,13 +757,10 @@ const loadFairPlay = async (source, drmConfig) => {
         return;
       }
       try {
-        // setMediaKeys is fast here because mediaKeys was already created above
-        await ensureAttached();
-
-        // Pause immediately to prevent Safari from decoding encrypted segments
-        // before the CKC arrives (~400-1000ms license round-trip).
-        // Playback resumes once session.update(ckc) is called below.
-        if (!video.paused) video.pause();
+        // Kick off setMediaKeys synchronously (Safari CDM requires the call to be
+        // initiated on the same call stack as the encrypted event), then await it.
+        const attachP = ensureAttached();
+        await attachP;
 
         const skdUri = new TextDecoder().decode(new Uint8Array(event.initData));
         const contentId = skdUri.replace(/^skd:\/\//, "").trim();
@@ -813,11 +811,23 @@ const loadFairPlay = async (source, drmConfig) => {
             pendingSessions = Math.max(0, pendingSessions - 1);
             log("info", `FairPlay: CKC applied (${ct || "binary"}), decryption active.`);
 
-            // Resume playback once all pending sessions have their keys
             if (pendingSessions === 0) {
-              video.play().catch(() => {
-                setStatus("Ready to play. Press play in the player.");
-              });
+              if (video.error && video.error.code === 3 && !hasRecoveredFromDecodeError) {
+                // Safari fired MEDIA_ERR_DECODE during the license round-trip — the decode
+                // pipeline is broken. Resetting src clears the error state; setMediaKeys
+                // persists across src changes so the next encrypted event finds keys already
+                // installed and skips a full license round-trip.
+                hasRecoveredFromDecodeError = true;
+                activeSessions.clear();
+                log("warn", "FairPlay: decode error recovery — resetting src to clear pipeline.");
+                const src = video.src;
+                video.removeAttribute("src");
+                setTimeout(() => { video.src = src; }, 0);
+              } else {
+                video.play().catch(() => {
+                  setStatus("Ready to play. Press play in the player.");
+                });
+              }
             }
           } catch (e) {
             log("error", `FairPlay license error: ${e.message}`);
