@@ -176,6 +176,77 @@
         <p>Developer-focused player · Sanjeev Pandey's Lab</p>
       </header>
 
+      <!-- v0.0.7 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.7</span>
+          <span class="release-date">7 Aug 2026</span>
+        </div>
+
+        <div class="section-title">FairPlay DRM</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>FairPlay DRM support</strong> — full EME implementation for Safari on macOS
+            and iOS. MediaKeys and the server certificate are pre-created before <code>src</code>
+            is assigned, keeping the encrypted-event handler on the fast path. Video and audio
+            encrypted events are handled concurrently via a shared <code>ensureAttached()</code>
+            promise so <code>setMediaKeys</code> is called exactly once regardless of how many
+            sessions arrive.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Certificate URL field</strong> — a Certificate URL input (shown automatically
+            when FairPlay is selected as the key system) lets you supply the <code>.cer</code>
+            endpoint. The cert is fetched and installed via <code>setServerCertificate</code>
+            before any license requests are made. The URL is included in share links so
+            FairPlay sessions are fully restorable.
+          </li>
+          <li>
+            <span class="tag fix">Fix</span>
+            <strong>Decode error recovery</strong> — if Safari fires <code>MEDIA_ERR_DECODE</code>
+            during the license round-trip (before the CKC arrives), the player resets <code>src</code>
+            to clear the broken decode pipeline. Because <code>setMediaKeys</code> persists across
+            src changes, the next encrypted event finds keys already installed and skips a full
+            license round-trip.
+          </li>
+        </ul>
+
+        <div class="section-title">Autoplay &amp; Sharing</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Muted-autoplay fallback</strong> — playback now uses an
+            <code>attemptAutoPlay()</code> helper that calls <code>video.play()</code> and, if
+            blocked by browser autoplay policy (<code>NotAllowedError</code>), retries with
+            <code>video.muted = true</code>. Muted autoplay is permitted in all browsers; the
+            user can unmute afterwards. Applied to HLS (hls.js), native HLS (Safari), and DASH.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Always-autoplay on shared URLs</strong> — share links now always include
+            <code>autoplay=true</code> when a stream URL is present so the recipient lands on a
+            playing stream without having to press Play. DASH autoplay is now driven from the
+            <code>STREAM_INITIALIZED</code> hook (rather than the <code>initialize</code> call)
+            so the muted-retry path works correctly.
+          </li>
+        </ul>
+
+        <div class="section-title">DASH Quality Timeline</div>
+        <ul>
+          <li>
+            <span class="tag fix">Fix</span>
+            <span class="tag dash">DASH</span>
+            <strong>Quality switch labels for dash.js v4 and v5</strong> — the
+            <code>QUALITY_CHANGE_RENDERED</code> handler now supports both the v5
+            (<code>event.oldRepresentation</code> / <code>event.newRepresentation</code> objects)
+            and v4 (<code>event.oldQuality</code> / <code>event.newQuality</code> integer indices)
+            event shapes. Labels show height and kbps where available. ABR select is kept in sync
+            with the currently playing quality when auto-switch is on.
+          </li>
+        </ul>
+      </div>
+
       <!-- v0.0.6 -->
       <div class="release">
         <div class="release-header">
