@@ -159,6 +159,7 @@ a.chip.chip-gh:hover {
 .config-panel {
   display: grid;
   gap: 12px;
+  align-content: start;
 }
 
 .panel-title {

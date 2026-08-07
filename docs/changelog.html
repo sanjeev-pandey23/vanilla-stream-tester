@@ -176,6 +176,57 @@
         <p>Developer-focused player · Sanjeev Pandey's Lab</p>
       </header>
 
+      <!-- v0.0.8 -->
+      <div class="release">
+        <div class="release-header">
+          <span class="release-version">v0.0.8</span>
+          <span class="release-date">7 Aug 2026</span>
+        </div>
+
+        <div class="section-title">Themes</div>
+        <ul>
+          <li>
+            <span class="tag new">New</span>
+            <strong>New clean theme</strong> — a new stylesheet
+            (<code>style-new.css</code>) built from scratch alongside the existing brutalist
+            theme. Design language: flat-2D surfaces, Inter / system-UI typeface, tight gray ramp
+            (<code>#f5f5f7</code> → <code>#1d1d1f</code>), and only three semantic accent colors
+            — Blue (<code>#007aff</code>) for interactive elements, red for errors, green for
+            the LIVE badge. No textures, no heavy drop shadows, no uppercase everywhere.
+          </li>
+          <li>
+            <span class="tag new">New</span>
+            <strong>Dark mode for Apple theme</strong> — full <code>prefers-color-scheme: dark</code>
+            support via a single CSS variable-override block. All tokens shift to Apple's dark
+            system palette (<code>#000</code> page background, <code>#1c1c1e</code> /
+            <code>#2c2c2e</code> surfaces, <code>#0a84ff</code> accent blue). Shadows gain
+            opacity, interactive inputs get a surface-2 background lift so they read as elevated
+            against the dark panel. No rules are duplicated — only the tokens change.
+          </li>
+        </ul>
+
+        <div class="section-title">Bug Fixes</div>
+        <ul>
+          <li>
+            <span class="tag fix">Fix</span>
+            <strong>Config panel layout shift on player load</strong> — when the left player panel
+            grew taller as stats and logs populated, the CSS Grid row stretched the config panel
+            to match. With <code>align-content</code> unset (defaulting to <code>stretch</code>),
+            the inner grid redistributed the extra height between rows, visually shifting all
+            controls. Fixed by setting <code>align-content: start</code> on
+            <code>.config-panel</code> in both stylesheets so items always pack from the top.
+          </li>
+          <li>
+            <span class="tag fix">Fix</span>
+            <strong>Share button height inconsistency</strong> — the inline Share button in the
+            config panel (<code>.btn-share-inline</code>) had no explicit height, so font-metric
+            differences between themes caused it to render at slightly different sizes. Fixed with
+            a hard <code>height: 28px</code> and <code>padding: 0 12px</code> so vertical size
+            is always controlled.
+          </li>
+        </ul>
+      </div>
+
       <!-- v0.0.7 -->
       <div class="release">
         <div class="release-header">
