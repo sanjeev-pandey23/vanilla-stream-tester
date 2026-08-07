@@ -588,6 +588,19 @@ const setStatus = (message) => {
   log("info", message);
 };
 
+// Attempt play(); if blocked by autoplay policy (NotAllowedError), retry muted.
+// Muted autoplay is permitted in all browsers — the user can unmute afterwards.
+const attemptAutoPlay = () =>
+  video.play().catch((err) => {
+    if (err && err.name === "NotAllowedError") {
+      log("warn", "Autoplay blocked — retrying muted.");
+      video.muted = true;
+      if (mutedToggle) mutedToggle.checked = true;
+      return video.play().catch(() => setStatus("Ready to play. Press play in the player."));
+    }
+    setStatus("Ready to play. Press play in the player.");
+  });
+
 const resetStats = () => {
   statResolution.textContent = "-";
   statBuffer.textContent = "-";
@@ -999,9 +1012,7 @@ const loadHls = (source, drmConfig) => {
     hlsPlayer.attachMedia(video);
     hlsPlayer.on(Hls.Events.MEDIA_ATTACHED, () => {
       hlsPlayer.loadSource(source);
-      video.play().catch(() => {
-        setStatus("Ready to play. Press play in the player.");
-      });
+      attemptAutoPlay();
     });
     setStatus("Loading HLS...");
     return;
@@ -1010,7 +1021,7 @@ const loadHls = (source, drmConfig) => {
   if (video.canPlayType("application/vnd.apple.mpegurl")) {
     // Native HLS (Safari) without DRM — FairPlay was already handled above
     video.src = source;
-    video.play().catch(() => setStatus("Ready to play. Press play in the player."));
+    attemptAutoPlay();
     setStatus("Using native HLS playback.");
     return;
   }
@@ -1079,7 +1090,7 @@ const loadDash = (source, drmConfig) => {
       },
     });
   }
-  dashPlayer.initialize(video, source, true);
+  dashPlayer.initialize(video, source, false); // play driven by STREAM_INITIALIZED so we can apply muted-retry
   if (ttmlRenderingDiv && typeof dashPlayer.attachTTMLRenderingDiv === "function") {
     dashPlayer.attachTTMLRenderingDiv(ttmlRenderingDiv);
   }
@@ -1121,6 +1132,7 @@ const loadDash = (source, drmConfig) => {
     }
     updateDashOptions();
     updateSubtitleOptions();
+    attemptAutoPlay();
     // Text track info can arrive after STREAM_INITIALIZED; retry if still empty
     setTimeout(() => { if (dashPlayer) updateSubtitleOptions(); }, 800);
   });
@@ -1646,7 +1658,9 @@ const buildShareUrl = () => {
   const certUrl = certUrlInput ? certUrlInput.value.trim() : "";
   if (certUrl) params.set("certUrl", certUrl);
 
-  if (autoplayToggle.checked) params.set("autoplay", "1");
+  // Always autoplay on shared stream links so the recipient lands on a playing stream.
+  // Fall back to the checkbox state when no stream URL is present.
+  if (url || autoplayToggle.checked) params.set("autoplay", "true");
   if (mutedToggle.checked) params.set("muted", "1");
   if (loopToggle.checked) params.set("loop", "1");
   if (lowLatencyToggle.checked) params.set("lowLatency", "1");
@@ -1685,7 +1699,7 @@ const restoreFromUrl = () => {
   }
   if (params.has("certUrl") && certUrlInput) certUrlInput.value = params.get("certUrl");
 
-  if (params.get("autoplay") === "1") autoplayToggle.checked = true;
+  if (params.get("autoplay") === "true") autoplayToggle.checked = true;
   if (params.get("muted") === "1") mutedToggle.checked = true;
   if (params.get("loop") === "1") loopToggle.checked = true;
   if (params.get("lowLatency") === "1") lowLatencyToggle.checked = true;
@@ -1707,6 +1721,10 @@ const restoreFromUrl = () => {
 
   updateHttpWarning();
   log("info", "Config restored from shared URL.");
+
+  if (params.get("url") && params.get("autoplay") === "true") {
+    handlePlay();
+  }
 };
 
 resetStats();

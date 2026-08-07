@@ -1,11 +1,12 @@
 ### <img src="./stream-tester-vanilla.svg" alt="Stream Tester Vanilla Logo" title="Stream Tester Vanilla" width="24" height="24" style="vertical-align: middle;" /> Stream Tester
 A simple hls and dash video tester build with vanilla js. Star the repo so others can find it.
 
-[![pages-build-deployment](https://github.com/sanjeev-pandey23/vanilla-stream-tester/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/sanjeev-pandey23/vanilla-stream-tester/actions/workflows/pages/pages-build-deployment)
+[![Deployment](https://github.com/sanjeev-pandey23/vanilla-stream-tester/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/sanjeev-pandey23/vanilla-stream-tester/actions/workflows/pages/pages-build-deployment)
 
 ![Tool Screenshot](./stream_tester_screenshot.png "Stream Tester")
 
 #### Supports
+___
 
 **Protocols**
 
