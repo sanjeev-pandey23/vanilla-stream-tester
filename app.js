@@ -2,7 +2,7 @@
  * app.js
  * Video player supporting HLS and DASH with DRM, stats, and logging.
  * Requires Hls.js and dash.js libraries.
- * Author: Sanjeev Pandey and ChatGPT
+ * Author: Sanjeev Pandey (@sanjeev-pandey23)
  * License: MIT
  */
 
@@ -12,6 +12,8 @@ const fileInput = document.getElementById("fileInput");
 const streamTypeSelect = document.getElementById("streamType");
 const licenseUrlInput = document.getElementById("licenseUrl");
 const keySystemSelect = document.getElementById("keySystem");
+const certUrlInput = document.getElementById("certUrl");
+const fairplayFields = document.getElementById("fairplayFields");
 const playBtn = document.getElementById("playBtn");
 const stopBtn = document.getElementById("stopBtn");
 const statusEl = document.getElementById("status");
@@ -688,13 +690,176 @@ const createDrmConfig = () => {
     return null;
   }
 
-  return { licenseUrl, keySystem };
+  const certUrl = (certUrlInput ? certUrlInput.value.trim() : "") || null;
+  return { licenseUrl, keySystem, certUrl };
+};
+
+keySystemSelect.addEventListener("change", () => {
+  const isFairPlay = keySystemSelect.value === "com.apple.fps.1_0";
+  if (fairplayFields) fairplayFields.classList.toggle("hidden", !isFairPlay);
+});
+
+const loadFairPlay = async (source, drmConfig) => {
+  const FPS_KEY_SYSTEM = "com.apple.fps.1_0";
+
+  if (!navigator.requestMediaKeySystemAccess) {
+    log("error", "FairPlay: EME not available. Use Safari on macOS or iOS.");
+    setStatus("FairPlay requires Safari.");
+    return;
+  }
+
+  try {
+    // 1. Pre-create MediaKeys and install certificate BEFORE setting src.
+    //    This moves the slow work (requestMediaKeySystemAccess + createMediaKeys + cert)
+    //    out of the encrypted event handler, leaving only a fast setMediaKeys call there.
+    //    We do NOT call video.setMediaKeys() here — doing so before src suppresses the
+    //    encrypted event in some Safari versions.
+    const KS_CONFIG = [{
+      initDataTypes: ["skd"],
+      videoCapabilities: [
+        { contentType: 'video/mp4; codecs="avc1.42E01E"' },
+        { contentType: 'video/mp4; codecs="avc1.64001E"' },
+        { contentType: "video/mp4" },
+      ],
+    }];
+    const access = await navigator.requestMediaKeySystemAccess(FPS_KEY_SYSTEM, KS_CONFIG)
+      .catch(() => { throw new Error("FairPlay not supported — use Safari on macOS / iOS."); });
+    const mediaKeys = await access.createMediaKeys();
+
+    if (drmConfig.certUrl) {
+      log("info", "FairPlay: fetching certificate...");
+      const certRes = await fetch(drmConfig.certUrl);
+      if (!certRes.ok) throw new Error(`Certificate fetch failed: ${certRes.status}`);
+      await mediaKeys.setServerCertificate(new Uint8Array(await certRes.arrayBuffer()));
+      log("info", "FairPlay: certificate installed.");
+    } else {
+      log("warn", "FairPlay: no certificate URL — proceeding without setServerCertificate.");
+    }
+
+    // 2. Attach promise — ensures setMediaKeys is called exactly once even if
+    //    video + audio encrypted events arrive concurrently.
+    let attachPromise = null;
+    const ensureAttached = () => {
+      if (!attachPromise) attachPromise = video.setMediaKeys(mediaKeys)
+        .then(() => log("info", "FairPlay: MediaKeys attached."));
+      return attachPromise;
+    };
+
+    // 3. Register encrypted handler BEFORE src — no events will be missed.
+    //    No { once: true } — video and audio each fire their own encrypted event.
+    let pendingSessions = 0; // how many sessions are waiting for CKC
+    const activeSessions = new Map();
+    video.addEventListener("encrypted", async (event) => {
+      log("info", `FairPlay: encrypted event (type=${event.initDataType})`);
+      if (event.initDataType !== "skd") {
+        log("warn", `FairPlay: unexpected initDataType "${event.initDataType}" — skipping`);
+        return;
+      }
+      try {
+        // setMediaKeys is fast here because mediaKeys was already created above
+        await ensureAttached();
+
+        // Pause immediately to prevent Safari from decoding encrypted segments
+        // before the CKC arrives (~400-1000ms license round-trip).
+        // Playback resumes once session.update(ckc) is called below.
+        if (!video.paused) video.pause();
+
+        const skdUri = new TextDecoder().decode(new Uint8Array(event.initData));
+        const contentId = skdUri.replace(/^skd:\/\//, "").trim();
+        log("info", `FairPlay: content ID = ${contentId}`);
+
+        if (activeSessions.has(contentId)) {
+          log("info", "FairPlay: session already active for this content ID — reusing.");
+          return;
+        }
+
+        const session = mediaKeys.createSession();
+        activeSessions.set(contentId, session);
+        pendingSessions++;
+
+        session.addEventListener("message", async (msgEvent) => {
+          try {
+            log("info", "FairPlay: sending SPC to license server...");
+            const response = await fetch(drmConfig.licenseUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/octet-stream" },
+              body: new Uint8Array(msgEvent.message),
+            });
+            if (!response.ok) throw new Error(`License server returned ${response.status}`);
+
+            // CKC format varies by provider:
+            //   Brightcove  → application/octet-stream raw bytes
+            //   Some        → text/plain base64-encoded string
+            //   Some        → application/json { "ckc": "<base64>" }
+            const ct = (response.headers.get("content-type") || "").toLowerCase();
+            let ckc;
+            if (ct.includes("application/json")) {
+              const json = await response.json();
+              const b64 = json.ckc || json.CKC || json.license || json.payload;
+              if (!b64) throw new Error("JSON license response missing ckc field");
+              ckc = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            } else if (ct.includes("text/") || ct.startsWith("application/x-")) {
+              const text = (await response.text()).trim();
+              try {
+                ckc = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+              } catch {
+                ckc = new TextEncoder().encode(text);
+              }
+            } else {
+              ckc = new Uint8Array(await response.arrayBuffer());
+            }
+
+            await session.update(ckc);
+            pendingSessions = Math.max(0, pendingSessions - 1);
+            log("info", `FairPlay: CKC applied (${ct || "binary"}), decryption active.`);
+
+            // Resume playback once all pending sessions have their keys
+            if (pendingSessions === 0) {
+              video.play().catch(() => {
+                setStatus("Ready to play. Press play in the player.");
+              });
+            }
+          } catch (e) {
+            log("error", `FairPlay license error: ${e.message}`);
+            setStatus(`FairPlay license error: ${e.message}`);
+          }
+        });
+
+        await session.generateRequest(event.initDataType, event.initData);
+      } catch (e) {
+        log("error", `FairPlay session error: ${e.message}`);
+        setStatus(`FairPlay error: ${e.message}`);
+      }
+    });
+
+    // 4. Set src — do NOT call play() yet.
+    //    Starting playback before the CKC arrives causes Safari to attempt decoding
+    //    encrypted segments and fire MEDIA_ERR_DECODE before the license is ready,
+    //    leaving the decode pipeline in a broken state even after key installation.
+    //    Also force autoplay=false so Safari doesn't auto-start before keys are ready;
+    //    the encrypted handler resumes playback once session.update(ckc) completes.
+    video.autoplay = false;
+    video.src = source;
+    log("info", "FairPlay: setup complete — src set, waiting for encrypted event.");
+    setStatus("Loading FairPlay stream...");
+
+  } catch (e) {
+    log("error", `FairPlay setup failed: ${e.message}`);
+    setStatus(`FairPlay error: ${e.message}`);
+  }
 };
 
 const loadHls = (source, drmConfig) => {
   cleanupPlayers();
   waterfallSessionStart = performance.now();
   waterfallSessionWall = Date.now();
+
+  // FairPlay must always bypass hls.js — even on Safari 14.1+ where Hls.isSupported() is true.
+  // hls.js has no FairPlay support; native Safari EME is the only path that works.
+  if (drmConfig && drmConfig.keySystem === "com.apple.fps.1_0") {
+    loadFairPlay(source, drmConfig);
+    return;
+  }
 
   if (Hls.isSupported()) {
     const config = {};
@@ -833,11 +998,17 @@ const loadHls = (source, drmConfig) => {
   }
 
   if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    // Native HLS (Safari) without DRM — FairPlay was already handled above
     video.src = source;
-    video.play().catch(() => {
-      setStatus("Ready to play. Press play in the player.");
-    });
+    video.play().catch(() => setStatus("Ready to play. Press play in the player."));
     setStatus("Using native HLS playback.");
+    return;
+  }
+
+  // Non-Safari browser with FairPlay selected — can't work
+  if (drmConfig && drmConfig.keySystem === "com.apple.fps.1_0") {
+    log("warn", "FairPlay DRM requires Safari. Cannot play in this browser.");
+    setStatus("FairPlay requires Safari on macOS or iOS.");
     return;
   }
 
@@ -1046,7 +1217,10 @@ const handlePlay = () => {
 
   if (!source.startsWith("blob:") && !source.startsWith("data:")) {
     fetchManifestInfo(source);
-    history.replaceState(null, "", buildShareUrl());
+    const shareUrl = buildShareUrl();
+    history.replaceState(null, "", shareUrl);
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    if (ogUrl) ogUrl.setAttribute("content", shareUrl);
   }
 
   if (type === "hls") {
@@ -1429,7 +1603,19 @@ video.addEventListener("ended", () => {
 });
 
 video.addEventListener("error", () => {
-  log("error", "Video element error.");
+  const err = video.error;
+  const codeMap = { 1: "ABORTED", 2: "NETWORK", 3: "DECODE", 4: "SRC_NOT_SUPPORTED" };
+  const code = err ? (codeMap[err.code] || `code ${err.code}`) : "unknown";
+  const msg = err && err.message ? ` — ${err.message}` : "";
+  // DECODE during FairPlay is expected while waiting for the license round-trip;
+  // log as warn rather than error so it doesn't look like a hard failure.
+  const isFairPlayHandshake = err && err.code === 3 &&
+    keySystemSelect && keySystemSelect.value === "com.apple.fps.1_0";
+  if (isFairPlayHandshake) {
+    log("warn", `FairPlay: decode error during license fetch — awaiting CKC...`);
+  } else {
+    log("error", `Video error: ${code}${msg}`);
+  }
 });
 
 const buildShareUrl = () => {
@@ -1446,6 +1632,9 @@ const buildShareUrl = () => {
 
   const keySystem = keySystemSelect.value.trim();
   if (keySystem) params.set("keySystem", keySystem);
+
+  const certUrl = certUrlInput ? certUrlInput.value.trim() : "";
+  if (certUrl) params.set("certUrl", certUrl);
 
   if (autoplayToggle.checked) params.set("autoplay", "1");
   if (mutedToggle.checked) params.set("muted", "1");
@@ -1478,7 +1667,13 @@ const restoreFromUrl = () => {
   if (params.has("url")) urlInput.value = params.get("url");
   if (params.has("type")) streamTypeSelect.value = params.get("type");
   if (params.has("licenseUrl")) licenseUrlInput.value = params.get("licenseUrl");
-  if (params.has("keySystem")) keySystemSelect.value = params.get("keySystem");
+  if (params.has("keySystem")) {
+    keySystemSelect.value = params.get("keySystem");
+    if (params.get("keySystem") === "com.apple.fps.1_0" && fairplayFields) {
+      fairplayFields.classList.remove("hidden");
+    }
+  }
+  if (params.has("certUrl") && certUrlInput) certUrlInput.value = params.get("certUrl");
 
   if (params.get("autoplay") === "1") autoplayToggle.checked = true;
   if (params.get("muted") === "1") mutedToggle.checked = true;
@@ -1506,6 +1701,10 @@ const restoreFromUrl = () => {
 
 resetStats();
 setupNetworkLogging();
+
+// Update og:url to the full current URL (includes any ?params from restoreFromUrl)
+const ogUrlMeta = document.querySelector('meta[property="og:url"]');
+if (ogUrlMeta) ogUrlMeta.setAttribute("content", location.href);
 if (networkLogsToggle) {
   window.__networkLogsEnabled = networkLogsToggle.checked;
 }

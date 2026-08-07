@@ -1,0 +1,52 @@
+ <svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 512 512"
+     width="512"
+     height="512"
+     fill="none"
+     role="img"
+     aria-label="(c) Sanjeev Pandey 2026">
+  
+  <title>Stream Tester Vanilla Logo</title>
+
+  <!-- Left brace -->
+  <path
+      d="M138 120
+         C110 120 110 146 110 176
+         L110 204
+         C110 224 98 236 82 242
+         C98 248 110 260 110 280
+         L110 336
+         C110 366 110 392 138 392"
+      stroke="#FF3B30"
+      stroke-width="16"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+
+  <!-- Play -->
+  <path
+    fill="#FF3B30"
+    d="
+      M186 166
+      Q186 150 201 158
+      L334 241
+      C347 249 352 252 352 256
+      C352 260 347 263 334 271
+      L201 354
+      Q186 362 186 346
+      Z"/>
+
+  <!-- Right brace -->
+  <path
+      d="M374 120
+         C402 120 402 146 402 176
+         L402 204
+         C402 224 414 236 430 242
+         C414 248 402 260 402 280
+         L402 336
+         C402 366 402 392 374 392"
+      stroke="#FF3B30"
+      stroke-width="16"
+      stroke-linecap="round"
+      stroke-linejoin="round"/>
+
+</svg>

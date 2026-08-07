@@ -313,6 +313,11 @@ button.secondary {
   padding-left: 10px;
 }
 
+.drm-note {
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
 .divider {
   height: 2px;
   background: var(--border);

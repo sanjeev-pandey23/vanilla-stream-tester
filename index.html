@@ -4,6 +4,28 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stream Tester</title>
+    <meta name="description" content="Developer-focused HLS &amp; DASH player with live diagnostics, ABR stats, DRM support, and rich telemetry." />
+
+    <!-- Favicon: SVG for modern browsers, PNG fallback for legacy -->
+    <link rel="icon" href="stream-tester-vanilla.svg" type="image/svg+xml" />
+    <link rel="icon" href="stream-tester-vanilla.png" type="image/png" />
+    <link rel="apple-touch-icon" href="stream-tester-vanilla.png" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Stream Tester" />
+    <meta property="og:title" content="Stream Tester" />
+    <meta property="og:description" content="Developer-focused HLS &amp; DASH player with live diagnostics, ABR stats, DRM support, and rich telemetry." />
+    <meta property="og:image" content="https://sanjeev-pandey23.github.io/vanilla-stream-tester/stream-tester-vanilla.png
+    <meta property="og:url" content="https://sanjeev-pandey23.github.io/vanilla-stream-tester/" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Stream Tester" />
+    <meta name="twitter:description" content="Developer-focused HLS &amp; DASH player with live diagnostics, ABR stats, DRM support, and rich telemetry." />
+    <meta name="twitter:image" content="https://sanjeev-pandey23.github.io/vanilla-stream-tester/stream-tester-vanilla.png" />
+    <meta name="twitter:image:alt" content="Stream Tester — live diagnostics and stats panel" />
+
     <link rel="stylesheet" href="style.css" />
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.12"></script>
     <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
@@ -194,6 +216,16 @@
               <option value="com.microsoft.playready">PlayReady</option>
               <option value="com.apple.fps.1_0">FairPlay</option>
             </select>
+          </div>
+
+          <div id="fairplayFields" class="hidden">
+            <div class="row">
+              <label for="certUrl">Certificate URL <small class="dim">(FairPlay)</small></label>
+              <input id="certUrl" type="url" placeholder="https://example.com/fairplay.cer" />
+            </div>
+            <div class="note drm-note">
+              FairPlay DRM only works in <strong>Safari</strong> on macOS / iOS. Other browsers do not support this key system.
+            </div>
           </div>
 
           <div class="divider"></div>
