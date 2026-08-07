@@ -1784,3 +1784,30 @@ if (copyManifestBtn) {
 }
 
 restoreFromUrl();
+
+// --- Theme toggle ---
+const themeStylesheet = document.getElementById("themeStylesheet");
+const themeToggleBtn = document.getElementById("themeToggleBtn");
+
+const THEMES = {
+  new: { file: "style-new.css", label: "Brutalist UI" },
+  brutalist: { file: "style-brutalist.css", label: "Modern UI" },
+};
+
+const applyTheme = (name) => {
+  const theme = THEMES[name];
+  if (!theme || !themeStylesheet) return;
+  themeStylesheet.href = theme.file;
+  if (themeToggleBtn) themeToggleBtn.textContent = theme.label;
+  localStorage.setItem("streamTesterTheme", name);
+};
+
+const savedTheme = localStorage.getItem("streamTesterTheme");
+applyTheme(savedTheme && THEMES[savedTheme] ? savedTheme : "new");
+
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener("click", () => {
+    const current = localStorage.getItem("streamTesterTheme") || "new";
+    applyTheme(current === "new" ? "brutalist" : "new");
+  });
+}

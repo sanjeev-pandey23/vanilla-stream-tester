@@ -1,3 +1,10 @@
+/**
+ * style-brutalist.css
+ * Brutalist theme for Stream Tester.
+ * Author: Sanjeev Pandey (@sanjeev-pandey23)
+ * License: MIT
+ */
+
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;600;700&display=swap");
 
 :root {

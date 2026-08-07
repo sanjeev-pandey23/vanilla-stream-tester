@@ -1,3 +1,10 @@
+/**
+ * style-new.css
+ * Minimal light/dark theme for Stream Tester.
+ * Author: Sanjeev Pandey (@sanjeev-pandey23)
+ * License: MIT
+ */
+
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
 
 :root {
@@ -11,7 +18,7 @@
   --text:         #1d1d1f;
   --text-2:       #6e6e73;
   --text-3:       #aeaeb2;
-  --accent:       #007aff;   /* Apple Blue — primary interactive only */
+  --accent:       #007aff;   /* Blue — primary interactive only */
   --red:          #ff3b30;   /* errors, destructive, warnings */
   --green:        #34c759;   /* LIVE badge, success */
   --orange:       #ff9500;   /* warn log level */
