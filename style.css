@@ -65,7 +65,14 @@ h2 {
 
 .header-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 10px;
+}
+
+.header-actions .subtitle {
+  flex-basis: 100%;
+  text-align: right;
 }
 
 .chip {
