@@ -1214,10 +1214,11 @@ const resolveSource = () => {
 const updateHttpWarning = () => {
   const url = urlInput.value.trim();
   const lower = url.toLowerCase();
-  const isHttp = lower.startsWith("http://");
+  const isLocalhost = lower.startsWith("http://localhost") || lower.startsWith("http://127.0.0.1");
+  const isHttp = lower.startsWith("http://") && !isLocalhost;
   const isHttps = lower.startsWith("https://");
   httpWarning.classList.toggle("hidden", !isHttp);
-  const shouldShowPlay = Boolean(url) && isHttps && fileInput.files.length === 0;
+  const shouldShowPlay = Boolean(url) && (isHttps || isLocalhost) && fileInput.files.length === 0;
   inlinePlayBtn.classList.toggle("hidden", !shouldShowPlay);
 };
 
